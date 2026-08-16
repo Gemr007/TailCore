@@ -93,6 +93,30 @@ go run   -tags with_utls ./cmd/talecore testdata/vless.json
 По мере добавления протоколов сюда доедут `with_quic` (TUIC, Hysteria/2),
 `with_wireguard`, `with_gvisor` (TUN).
 
+## Нативные библиотеки
+
+```
+scripts/build-desktop.ps1   # Windows: core/build/talecore.dll + .h
+scripts/build-desktop.sh    # Linux/macOS: core/build/libtalecore.so|.dylib
+scripts/smoke-desktop.ps1   # дёргает C-ABI собранной .dll снаружи Go
+scripts/build-android.ps1   # app/android/libs/talecore.aar (4 ABI)
+```
+
+Десктоп получает C-ABI: `TaleCoreStart`/`Stop`/`Status`/`Free`, все строки
+владеет вызывающая сторона. Android получает Java-класс `tunnel.Tunnel` —
+gomobile навешивает обёртку прямо на пакет `core/tunnel`, промежуточный
+слой не нужен:
+
+```java
+tunnel.Tunnel.start(configJson);   // throws Exception
+tunnel.Tunnel.status();            // -> JSON
+tunnel.Tunnel.stop();              // throws Exception
+```
+
+Для Android нужны `ANDROID_HOME` с установленным NDK и JDK в PATH.
+Артефакты сборки в git не попадают.
+
 ## Статус
 
-Итерация 1, шаг 2 из 13 — Go-ядро: обёртка sing-box (start/stop/status) и CLI.
+Итерация 1, шаг 3 из 13 — ядро собирается в нативные библиотеки для
+десктопа (cgo) и Android (gomobile). С Flutter ещё не связано.
