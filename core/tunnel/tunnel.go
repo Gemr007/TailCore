@@ -32,11 +32,17 @@ type snapshot struct {
 	Since string `json:"since,omitempty"`
 	// Error — причина последнего неудачного старта. Сбрасывается при следующем Start.
 	Error string `json:"error,omitempty"`
+	// Uplink/Downlink — байты нарастающим итогом за текущую сессию.
+	// Скорость из них считает вызывающая сторона: она и так опрашивает
+	// статус по таймеру, и только она знает, какой интервал показывает.
+	Uplink   int64 `json:"uplink"`
+	Downlink int64 `json:"downlink"`
 }
 
 var (
 	mu        sync.Mutex
 	instance  *box.Box
+	traffic   *counter
 	state     = StateStopped
 	startedAt time.Time
 	lastErr   string
@@ -65,6 +71,12 @@ func Start(configJSON string) error {
 	if err != nil {
 		return fail(err)
 	}
+
+	// Счётчик вешаем до старта: соединения, проскочившие между Start и
+	// AppendTracker, в статистику бы не попали.
+	c := &counter{}
+	inst.Router().AppendTracker(c)
+
 	if err := inst.Start(); err != nil {
 		// Частично поднятый box держит сокеты — закрываем, иначе следующий
 		// старт упрётся в занятый порт.
@@ -73,6 +85,7 @@ func Start(configJSON string) error {
 	}
 
 	instance = inst
+	traffic = c
 	startedAt = time.Now()
 	state = StateRunning
 	return nil
@@ -90,6 +103,8 @@ func Stop() error {
 	}
 	err := instance.Close()
 	instance = nil
+	// Счётчики привязаны к сессии: следующий Start начинает с нуля.
+	traffic = nil
 	state = StateStopped
 	startedAt = time.Time{}
 	return err
@@ -102,9 +117,12 @@ func Status() string {
 	if state == StateRunning {
 		s.Since = startedAt.Format(time.RFC3339)
 	}
+	if traffic != nil {
+		s.Uplink, s.Downlink = traffic.totals()
+	}
 	mu.Unlock()
 
-	// Структура из трёх строковых полей не умеет ломать json.Marshal.
+	// Строки и числа не умеют ломать json.Marshal.
 	out, _ := json.Marshal(s)
 	return string(out)
 }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'screens/dashboard.dart';
+import 'theme.dart';
 
 void main() => runApp(const TailCoreApp());
 
@@ -14,15 +15,7 @@ class TailCoreApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       // Светлой темы у приложения не предполагается — не тема по умолчанию,
       // а единственная.
-      // TODO(шаг 6): IBM Plex Sans + JetBrains Mono, палитра из макетов.
-      theme: ThemeData(
-        brightness: Brightness.dark,
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF3B82F6),
-          brightness: Brightness.dark,
-        ),
-        useMaterial3: true,
-      ),
+      theme: buildTheme(),
       home: const AppShell(),
     );
   }
@@ -31,21 +24,22 @@ class TailCoreApp extends StatelessWidget {
 /// Раздел приложения. Экран подписки и управление устройствами сюда
 /// сознательно не входят — они делаются отдельно.
 enum Section {
-  dashboard('Соединение', Icons.shield_outlined, Icons.shield),
-  servers('Серверы', Icons.dns_outlined, Icons.dns),
-  settings('Настройки', Icons.tune_outlined, Icons.tune);
+  dashboard('Соединение', '1'),
+  servers('Серверы', '2'),
+  settings('Настройки', '3');
 
-  const Section(this.label, this.icon, this.selectedIcon);
+  const Section(this.label, this.key);
 
   final String label;
-  final IconData icon;
-  final IconData selectedIcon;
+
+  /// Цифра рядом с пунктом в боковой панели — как в макете.
+  final String key;
 }
 
 /// Оболочка с навигацией, которая разворачивается в плотность на десктопе
-/// и сворачивается в простоту на мобильном: рейл сбоку против панели снизу.
-/// Порог по ширине, а не по платформе, — узкое окно на десктопе ведёт себя
-/// как телефон, и это правильно.
+/// и сворачивается в простоту на мобильном: боковая панель против панели
+/// снизу. Порог по ширине, а не по платформе, — узкое окно на десктопе
+/// ведёт себя как телефон, и это правильно.
 class AppShell extends StatefulWidget {
   const AppShell({super.key});
 
@@ -56,62 +50,247 @@ class AppShell extends StatefulWidget {
 class _AppShellState extends State<AppShell> {
   Section _section = Section.dashboard;
 
-  static const _railBreakpoint = 700.0;
+  static const _sidebarBreakpoint = 700.0;
 
   @override
   Widget build(BuildContext context) {
-    final wide = MediaQuery.sizeOf(context).width >= _railBreakpoint;
+    final wide = MediaQuery.sizeOf(context).width >= _sidebarBreakpoint;
     final body = SafeArea(
       child: switch (_section) {
         Section.dashboard => const DashboardScreen(),
-        // Содержимое приезжает отдельными шагами: Servers — шаг 7,
-        // Settings — шаг 10.
+        // Содержимое приезжает отдельными шагами: Серверы — шаг 7,
+        // Настройки — шаг 10.
         _ => _SectionPlaceholder(section: _section),
       },
     );
 
-    if (wide) {
-      return Scaffold(
-        body: Row(
-          children: [
-            NavigationRail(
-              selectedIndex: _section.index,
-              onDestinationSelected: _select,
-              labelType: NavigationRailLabelType.all,
-              destinations: [
-                for (final s in Section.values)
-                  NavigationRailDestination(
-                    icon: Icon(s.icon),
-                    selectedIcon: Icon(s.selectedIcon),
-                    label: Text(s.label),
-                  ),
-              ],
-            ),
-            const VerticalDivider(width: 1),
-            Expanded(child: body),
-          ],
-        ),
-      );
-    }
-
     return Scaffold(
-      body: body,
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _section.index,
-        onDestinationSelected: _select,
-        destinations: [
-          for (final s in Section.values)
-            NavigationDestination(
-              icon: Icon(s.icon),
-              selectedIcon: Icon(s.selectedIcon),
-              label: s.label,
-            ),
-        ],
-      ),
+      body: wide
+          ? Row(
+              children: [
+                _Sidebar(current: _section, onSelect: _select),
+                Expanded(child: body),
+              ],
+            )
+          : body,
+      bottomNavigationBar: wide
+          ? null
+          : _TabBar(current: _section, onSelect: _select),
     );
   }
 
-  void _select(int index) => setState(() => _section = Section.values[index]);
+  void _select(Section s) => setState(() => _section = s);
+}
+
+/// Боковая панель десктопа: разделы, а внизу — состояние ядра, которое на
+/// плотном экране полезнее пустоты.
+class _Sidebar extends StatelessWidget {
+  const _Sidebar({required this.current, required this.onSelect});
+
+  final Section current;
+  final ValueChanged<Section> onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 212,
+      decoration: const BoxDecoration(
+        color: C.chrome,
+        border: Border(right: BorderSide(color: C.divider)),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
+      child: SafeArea(
+        right: false,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(8, 4, 8, 18),
+              child: Row(
+                children: [
+                  _BrandMark(),
+                  SizedBox(width: 9),
+                  Text(
+                    'TailCore',
+                    style: TextStyle(
+                      fontSize: 14.5,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: -0.15,
+                      color: C.text,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            for (final s in Section.values)
+              _SidebarItem(
+                section: s,
+                selected: s == current,
+                onTap: () => onSelect(s),
+              ),
+            const Spacer(),
+            Container(
+              padding: const EdgeInsets.fromLTRB(9, 12, 9, 0),
+              decoration: const BoxDecoration(
+                border: Border(top: BorderSide(color: C.divider)),
+              ),
+              child: Column(
+                children: [
+                  // TODO(шаг 12): TUN появится здесь, когда его будет что
+                  // показывать.
+                  _CoreFact(label: 'ЯДРО', value: 'sing-box 1.13.18'),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SidebarItem extends StatelessWidget {
+  const _SidebarItem({
+    required this.section,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final Section section;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(7),
+      hoverColor: C.hover,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 2),
+        padding: const EdgeInsets.fromLTRB(9, 8, 9, 8),
+        decoration: BoxDecoration(
+          color: selected ? C.hover : Colors.transparent,
+          borderRadius: BorderRadius.circular(7),
+          border: Border(
+            left: BorderSide(
+              color: selected ? C.accent : Colors.transparent,
+              width: 2,
+            ),
+          ),
+        ),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 12,
+              child: Text(
+                section.key,
+                textAlign: TextAlign.center,
+                style: monoStyle(size: 11, color: C.textMuted),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Text(
+              section.label,
+              style: TextStyle(
+                fontSize: 13,
+                color: selected ? C.text : C.textDim,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CoreFact extends StatelessWidget {
+  const _CoreFact({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    // Панель фиксированной ширины, а значение приходит из ядра и длину
+    // не гарантирует — режем его, а не ломаем раскладку.
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(label, style: monoStyle(size: 10, caps: true, color: C.textFaint)),
+        const SizedBox(width: 8),
+        Flexible(
+          child: Text(
+            value,
+            textAlign: TextAlign.right,
+            overflow: TextOverflow.ellipsis,
+            style: monoStyle(size: 10, color: C.textDim),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Нижняя панель мобильного: те же разделы, но подписи моноширинные и
+/// заглавные — это ярлыки, а не предложения.
+class _TabBar extends StatelessWidget {
+  const _TabBar({required this.current, required this.onSelect});
+
+  final Section current;
+  final ValueChanged<Section> onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: const BoxDecoration(
+        color: C.chrome,
+        border: Border(top: BorderSide(color: C.divider)),
+      ),
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 20),
+      child: SafeArea(
+        top: false,
+        child: Row(
+          children: [
+            for (final s in Section.values)
+              Expanded(
+                child: InkWell(
+                  onTap: () => onSelect(s),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Text(
+                      s.label,
+                      textAlign: TextAlign.center,
+                      style: monoStyle(
+                        size: 9.5,
+                        caps: true,
+                        color: s == current ? C.accent : C.textFaint,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _BrandMark extends StatelessWidget {
+  const _BrandMark();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 11,
+      height: 11,
+      decoration: BoxDecoration(
+        color: C.accent,
+        borderRadius: BorderRadius.circular(2.5),
+      ),
+    );
+  }
 }
 
 /// Заглушка ещё не сделанного раздела.

@@ -2,23 +2,39 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../core/endpoint.dart';
 import '../core/tunnel.dart';
+import '../format.dart';
+import '../theme.dart';
+import '../widgets/panel.dart';
 
 /// Временный конфиг, пока нет экрана серверов: без него нечего передать в
-/// ядро, а проверить мост надо уже сейчас.
+/// ядро, а кнопка «Подключить» должна работать уже сейчас.
 /// TODO(шаг 7): брать конфиг выбранного сервера.
 const _placeholderConfig = '''
 {
   "inbounds": [
     {"type": "mixed", "tag": "local", "listen": "127.0.0.1", "listen_port": 2080}
   ],
-  "outbounds": [{"type": "direct", "tag": "direct"}]
+  "outbounds": [
+    {
+      "type": "vless",
+      "tag": "ams-02 · reality",
+      "server": "185.229.59.22",
+      "server_port": 8443,
+      "uuid": "00000000-0000-0000-0000-000000000000",
+      "flow": "xtls-rprx-vision",
+      "tls": {
+        "enabled": true,
+        "server_name": "www.cloudflare.com",
+        "utls": {"enabled": true, "fingerprint": "chrome"}
+      }
+    },
+    {"type": "direct", "tag": "direct"}
+  ]
 }
 ''';
 
-/// Первая версия экрана соединения: показывает состояние ядра и умеет его
-/// включать и выключать. Кнопка из макета, текущий сервер и скорость —
-/// шаг 6, здесь проверяется только сам мост до Go.
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
 
@@ -27,18 +43,38 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
+  static const _pollInterval = Duration(seconds: 1);
+
   TunnelStatus? _status;
+
+  /// Ядро недоступно как таковое: нет библиотеки, нет канала.
   String? _bridgeError;
+
+  /// Причина отказа последнего действия пользователя. Хранится отдельно от
+  /// [_bridgeError], потому что опрос статуса не имеет права её стирать:
+  /// иначе сообщение о неудачном подключении исчезало бы в том же кадре,
+  /// в котором появилось.
+  String? _actionError;
+
   Timer? _poll;
+  bool _busy = false;
+
+  /// Предыдущий замер счётчиков — из разницы с ним и получается скорость.
+  TunnelStatus? _previous;
+  DateTime? _previousAt;
+  double? _upSpeed;
+  double? _downSpeed;
+
+  final _endpoint = Endpoint.fromConfig(_placeholderConfig);
 
   @override
   void initState() {
     super.initState();
     _refresh();
-    // ponytail: опрос раз в секунду вместо подписки на события ядра —
-    // нативной шины событий у нас пока нет. Появится к шагу 6, когда
-    // понадобится скорость в реальном времени.
-    _poll = Timer.periodic(const Duration(seconds: 1), (_) => _refresh());
+    // ponytail: опрос по таймеру вместо подписки на события ядра —
+    // событийной шины у ядра пока нет, а раз в секунду это ровно тот темп,
+    // с которым и так обновляются цифры скорости.
+    _poll = Timer.periodic(_pollInterval, (_) => _refresh());
   }
 
   @override
@@ -57,76 +93,546 @@ class _DashboardScreenState extends State<DashboardScreen> {
       // и любая другая беда доступа к ядру.
       error = '$e';
     }
+    if (!mounted) return;
+    _updateSpeed(status);
     _apply(status, error);
   }
 
-  Future<void> _run(Future<void> Function() action) async {
+  /// Считает скорость по разнице счётчиков между двумя опросами.
+  /// Обнуляется на любом разрыве сессии: после перезапуска ядра счётчики
+  /// начинаются с нуля, и разница с прошлым замером стала бы отрицательной.
+  void _updateSpeed(TunnelStatus? status) {
+    final now = DateTime.now();
+    final before = _previous;
+    final beforeAt = _previousAt;
+
+    if (status == null || status.state != TunnelState.running) {
+      _previous = null;
+      _previousAt = null;
+      _upSpeed = null;
+      _downSpeed = null;
+      return;
+    }
+
+    if (before != null &&
+        beforeAt != null &&
+        before.since == status.since &&
+        status.uplink >= before.uplink &&
+        status.downlink >= before.downlink) {
+      final seconds = now.difference(beforeAt).inMicroseconds / 1e6;
+      if (seconds > 0) {
+        _upSpeed = (status.uplink - before.uplink) / seconds;
+        _downSpeed = (status.downlink - before.downlink) / seconds;
+      }
+    } else {
+      _upSpeed = null;
+      _downSpeed = null;
+    }
+
+    _previous = status;
+    _previousAt = now;
+  }
+
+  Future<void> _toggle() async {
+    if (_busy) return;
+    final running = _status?.state == TunnelState.running;
+    setState(() {
+      _busy = true;
+      _actionError = null;
+    });
     try {
-      await action();
-      _apply(_status, null);
+      if (running) {
+        await TunnelCore.instance.stop();
+      } else {
+        await TunnelCore.instance.start(_placeholderConfig);
+      }
     } on TunnelException catch (e) {
-      _apply(_status, e.message);
+      if (mounted) setState(() => _actionError = e.message);
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
     await _refresh();
   }
 
-  /// Перерисовывает экран только когда что-то реально изменилось: статус
-  /// опрашивается раз в секунду и почти всегда возвращает то же самое.
-  void _apply(TunnelStatus? status, String? error) {
-    if (!mounted || (status == _status && error == _bridgeError)) return;
+  /// Перерисовывает экран только когда что-то изменилось: статус
+  /// опрашивается раз в секунду и в покое возвращает одно и то же.
+  ///
+  /// Пока туннель поднят, перерисовываем всегда: время в сети считается по
+  /// часам, а не по счётчикам, и в тихом туннеле иначе замирало бы.
+  void _apply(TunnelStatus? status, String? bridgeError) {
+    final ticking = status?.state == TunnelState.running;
+    if (!ticking && status == _status && bridgeError == _bridgeError) return;
     setState(() {
       _status = status;
-      _bridgeError = error;
+      _bridgeError = bridgeError;
     });
+  }
+
+  /// Что показать пользователю: недоступное ядро важнее отказа действия,
+  /// а отказ действия — важнее того, что ядро помнит с прошлого раза.
+  String? get _errorLine => _bridgeError ?? _actionError ?? _status?.error;
+
+  TunnelState get _state => _status?.state ?? TunnelState.stopped;
+  bool get _connected => _state == TunnelState.running;
+
+  Duration? get _uptime {
+    final since = _status?.since;
+    return since == null ? null : DateTime.now().difference(since);
+  }
+
+  String get _statusLine {
+    if (_status == null) return 'ЯДРО НЕДОСТУПНО';
+    return switch (_state) {
+      TunnelState.running => 'ТУННЕЛЬ ПОДНЯТ · ${_endpoint?.badge ?? 'DIRECT'}',
+      TunnelState.starting => 'ПОДКЛЮЧЕНИЕ...',
+      TunnelState.stopped => 'БЕЗ ЗАЩИТЫ',
+    };
   }
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final status = _status;
-    final running = status?.state == TunnelState.running;
+    final wide = MediaQuery.sizeOf(context).width >= 700;
+    return wide ? _buildDesktop() : _buildMobile();
+  }
 
-    return Center(
+  // --- Мобильная раскладка: одна крупная кнопка и ничего лишнего ---
+
+  Widget _buildMobile() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(22, 12, 22, 18),
       child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        spacing: 16,
         children: [
-          Text(
-            switch (status?.state) {
-              TunnelState.running => 'Подключено',
-              TunnelState.starting => 'Подключение...',
-              TunnelState.stopped => 'Отключено',
-              null => 'Ядро недоступно',
-            },
-            style: theme.textTheme.headlineMedium,
-          ),
-          if (status?.since != null)
-            Text(
-              'с ${status!.since!.toLocal()}',
-              style: theme.textTheme.bodySmall,
+          const _BrandRow(),
+          Expanded(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                _ConnectButton(
+                  connected: _connected,
+                  busy: _busy,
+                  uptime: _uptime,
+                  onTap: _toggle,
+                ),
+                const SizedBox(height: 26),
+                _StatusLine(text: _statusLine, connected: _connected),
+              ],
             ),
-          FilledButton(
-            onPressed: () => _run(
-              running
-                  ? TunnelCore.instance.stop
-                  : () => TunnelCore.instance.start(_placeholderConfig),
-            ),
-            child: Text(running ? 'Отключить' : 'Подключить'),
           ),
-          // Ошибку ядра и ошибку самого моста показываем одинаково: для
-          // пользователя это одна беда, различать их будет экран ошибок.
-          if (_bridgeError != null || status?.error != null)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: Text(
-                _bridgeError ?? status!.error!,
-                textAlign: TextAlign.center,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.error,
+          if (_endpoint != null) _EndpointCard(endpoint: _endpoint),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: _SpeedTile(
+                  label: '↓ ЗАГРУЗКА',
+                  speed: _downSpeed,
+                  accent: true,
                 ),
               ),
-            ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _SpeedTile(label: '↑ ОТДАЧА', speed: _upSpeed),
+              ),
+            ],
+          ),
+          if (_errorLine != null) _ErrorLine(text: _errorLine!),
         ],
+      ),
+    );
+  }
+
+  // --- Десктопная раскладка: всё состояние одной полосой ---
+
+  Widget _buildDesktop() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 26, vertical: 20),
+          decoration: const BoxDecoration(
+            border: Border(bottom: BorderSide(color: C.divider)),
+          ),
+          // Две группы, разведённые по краям, как в макете: слева «что за
+          // соединение», справа «сколько через него идёт».
+          //
+          // Правая группа не гибкая: в Row негибкие дети получают свою
+          // естественную ширину первыми, а левая забирает остаток и при
+          // нехватке переносит поля. Раздели пополам — и левая начала бы
+          // переноситься там, где места ещё вдоволь.
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Expanded(
+                child: Wrap(
+                  spacing: 28,
+                  runSpacing: 16,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    _ConnectPill(
+                      connected: _connected,
+                      busy: _busy,
+                      onTap: _toggle,
+                    ),
+                    _Field(
+                      label: 'АКТИВНЫЙ УЗЕЛ',
+                      value: _endpoint?.name ?? '—',
+                    ),
+                    _Field(
+                      label: 'ПРОТОКОЛ',
+                      value: _endpoint?.badge ?? '—',
+                      monoValue: true,
+                    ),
+                    _Field(
+                      label: 'ВРЕМЯ В СЕТИ',
+                      value: formatUptime(_connected ? _uptime : null),
+                      monoValue: true,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 28),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                spacing: 26,
+                children: [
+                  _Field(
+                    label: '↓ ЗАГРУЗКА',
+                    value: formatSpeed(_downSpeed),
+                    monoValue: true,
+                    accent: true,
+                    alignEnd: true,
+                  ),
+                  _Field(
+                    label: '↑ ОТДАЧА',
+                    value: formatSpeed(_upSpeed),
+                    monoValue: true,
+                    alignEnd: true,
+                  ),
+                  _Field(
+                    label: 'АДРЕС ВЫХОДА',
+                    value: _connected ? (_endpoint?.address ?? '—') : '—',
+                    monoValue: true,
+                    alignEnd: true,
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        if (_errorLine != null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(26, 16, 26, 0),
+            child: _ErrorLine(text: _errorLine!),
+          ),
+        // Таблица серверов и лог-полоса из макета приезжают отдельными
+        // шагами: серверы — шаг 7, лог — шаг 13.
+        const Spacer(),
+      ],
+    );
+  }
+}
+
+class _BrandRow extends StatelessWidget {
+  const _BrandRow();
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Container(
+          width: 11,
+          height: 11,
+          decoration: BoxDecoration(
+            color: C.accent,
+            borderRadius: BorderRadius.circular(2.5),
+          ),
+        ),
+        const SizedBox(width: 9),
+        const Text(
+          'TailCore',
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+            letterSpacing: -0.16,
+            color: C.text,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Круглая кнопка соединения — смысловой центр мобильного экрана.
+class _ConnectButton extends StatelessWidget {
+  const _ConnectButton({
+    required this.connected,
+    required this.busy,
+    required this.uptime,
+    required this.onTap,
+  });
+
+  final bool connected;
+  final bool busy;
+  final Duration? uptime;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 232,
+      height: 232,
+      child: Center(
+        // InkWell, а не GestureDetector: он фокусируется с клавиатуры и
+        // срабатывает по Enter. Главная кнопка приложения, доступная только
+        // мышью, — это дефект, а не упрощение.
+        child: InkWell(
+          onTap: busy ? null : onTap,
+          customBorder: const CircleBorder(),
+          child: Ink(
+            width: 196,
+            height: 196,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: connected ? C.accent : C.panelSoft,
+              border: Border.all(color: connected ? C.accent : C.panelBorder),
+            ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  connected ? 'Отключить' : 'Подключить',
+                  style: TextStyle(
+                    fontSize: 19,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: -0.19,
+                    color: connected ? C.onAccent : C.text,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  connected ? formatUptime(uptime) : 'НАЖМИТЕ ДЛЯ СТАРТА',
+                  style: monoStyle(
+                    size: 11,
+                    caps: true,
+                    color: (connected ? C.onAccent : C.text).withValues(
+                      alpha: 0.72,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Плоская кнопка-пилюля для десктопа: на плотном экране круг на пол-окна
+/// был бы неуместен.
+class _ConnectPill extends StatelessWidget {
+  const _ConnectPill({
+    required this.connected,
+    required this.busy,
+    required this.onTap,
+  });
+
+  final bool connected;
+  final bool busy;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = connected ? C.accent : C.textDim;
+    return InkWell(
+      onTap: busy ? null : onTap,
+      borderRadius: BorderRadius.circular(9),
+      child: Ink(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 11),
+        decoration: BoxDecoration(
+          color: connected ? C.accent.withValues(alpha: 0.10) : C.panelSoft,
+          border: Border.all(
+            color: connected ? C.accent.withValues(alpha: 0.4) : C.panelBorder,
+          ),
+          borderRadius: BorderRadius.circular(9),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 7,
+              height: 7,
+              decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+            ),
+            const SizedBox(width: 11),
+            Text(
+              connected ? 'Подключено' : 'Отключено',
+              style: TextStyle(
+                fontSize: 13.5,
+                fontWeight: FontWeight.w600,
+                color: color,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _StatusLine extends StatelessWidget {
+  const _StatusLine({required this.text, required this.connected});
+
+  final String text;
+  final bool connected;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Container(
+          width: 6,
+          height: 6,
+          decoration: BoxDecoration(
+            color: connected ? C.ok : C.idle,
+            shape: BoxShape.circle,
+          ),
+        ),
+        const SizedBox(width: 8),
+        Text(text, style: monoStyle(size: 11.5, caps: true)),
+      ],
+    );
+  }
+}
+
+class _EndpointCard extends StatelessWidget {
+  const _EndpointCard({required this.endpoint});
+
+  final Endpoint? endpoint;
+
+  @override
+  Widget build(BuildContext context) {
+    final e = endpoint!;
+    return Panel(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(e.name, style: Theme.of(context).textTheme.titleMedium),
+                const SizedBox(height: 3),
+                Text(e.address, style: monoStyle(size: 11, color: C.textMuted)),
+              ],
+            ),
+          ),
+          ProtocolBadge(protocol: e.badge),
+        ],
+      ),
+    );
+  }
+}
+
+class _SpeedTile extends StatelessWidget {
+  const _SpeedTile({
+    required this.label,
+    required this.speed,
+    this.accent = false,
+  });
+
+  final String label;
+  final double? speed;
+  final bool accent;
+
+  @override
+  Widget build(BuildContext context) {
+    return Panel(
+      soft: true,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: monoStyle(size: 9.5, caps: true, color: C.textMuted),
+          ),
+          const SizedBox(height: 5),
+          Text(
+            formatSpeed(speed),
+            style: monoStyle(
+              size: 17,
+              weight: FontWeight.w500,
+              color: accent ? C.accent : C.text,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Подпись-значение для плотной десктопной полосы.
+class _Field extends StatelessWidget {
+  const _Field({
+    required this.label,
+    required this.value,
+    this.monoValue = false,
+    this.accent = false,
+    this.alignEnd = false,
+  });
+
+  final String label;
+  final String value;
+  final bool monoValue;
+  final bool accent;
+
+  /// Поля правой группы прижаты к краю окна, поэтому и подпись со
+  /// значением выравниваются вправо.
+  final bool alignEnd;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: alignEnd
+          ? CrossAxisAlignment.end
+          : CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          label,
+          style: monoStyle(size: 9.5, caps: true, color: C.textMuted),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          value,
+          style: monoValue
+              ? monoStyle(size: 13, color: accent ? C.accent : C.text)
+              : const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                  color: C.text,
+                ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ErrorLine extends StatelessWidget {
+  const _ErrorLine({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 14),
+      child: Text(
+        text,
+        textAlign: TextAlign.center,
+        style: monoStyle(size: 11, color: C.bad),
       ),
     );
   }

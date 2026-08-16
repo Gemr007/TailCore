@@ -30,7 +30,13 @@ enum TunnelState {
 }
 
 class TunnelStatus {
-  const TunnelStatus({required this.state, this.since, this.error});
+  const TunnelStatus({
+    required this.state,
+    this.since,
+    this.error,
+    this.uplink = 0,
+    this.downlink = 0,
+  });
 
   final TunnelState state;
 
@@ -40,6 +46,11 @@ class TunnelStatus {
   /// Причина последнего неудачного старта, если она была.
   final String? error;
 
+  /// Байты за текущую сессию, нарастающим итогом. Скорость из них считает
+  /// экран: только он знает, сколько прошло между двумя опросами.
+  final int uplink;
+  final int downlink;
+
   // Статус опрашивается раз в секунду и почти всегда возвращает то же
   // самое. Без сравнения по значению экран перерисовывался бы вхолостую.
   @override
@@ -47,10 +58,12 @@ class TunnelStatus {
       other is TunnelStatus &&
       other.state == state &&
       other.since == since &&
-      other.error == error;
+      other.error == error &&
+      other.uplink == uplink &&
+      other.downlink == downlink;
 
   @override
-  int get hashCode => Object.hash(state, since, error);
+  int get hashCode => Object.hash(state, since, error, uplink, downlink);
 
   factory TunnelStatus.fromJson(String raw) {
     final map = jsonDecode(raw) as Map<String, dynamic>;
@@ -59,6 +72,8 @@ class TunnelStatus {
       state: TunnelState.parse(map['state'] as String?),
       since: since == null ? null : DateTime.tryParse(since),
       error: map['error'] as String?,
+      uplink: (map['uplink'] as num?)?.toInt() ?? 0,
+      downlink: (map['downlink'] as num?)?.toInt() ?? 0,
     );
   }
 }
