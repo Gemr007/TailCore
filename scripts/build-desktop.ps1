@@ -1,0 +1,23 @@
+# Собирает ядро в динамическую библиотеку для Windows: core/build/talecore.dll
+# (+ talecore.h, его читает генератор FFI-биндингов на стороне Flutter).
+#
+# Нужен gcc в PATH — cgo без C-компилятора не соберётся.
+# Для Linux/macOS есть build-desktop.sh, там всё то же самое.
+
+$ErrorActionPreference = 'Stop'
+$core = Join-Path $PSScriptRoot '..\core' | Resolve-Path
+$out = Join-Path $core 'build'
+
+New-Item -ItemType Directory -Force -Path $out | Out-Null
+$env:CGO_ENABLED = '1'
+
+Push-Location $core
+try {
+    go build -tags with_utls -buildmode=c-shared -o (Join-Path $out 'talecore.dll') ./lib
+    if ($LASTEXITCODE -ne 0) { throw "go build failed with exit code $LASTEXITCODE" }
+}
+finally {
+    Pop-Location
+}
+
+Get-ChildItem $out | Select-Object Name, Length
