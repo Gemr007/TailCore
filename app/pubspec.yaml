@@ -37,6 +37,7 @@ dependencies:
 
   # Маршалинг utf8-строк через границу dart:ffi.
   ffi: ^2.1.4
+  path_provider: ^2.1.6
 
 dev_dependencies:
   flutter_test:

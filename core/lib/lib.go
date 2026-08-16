@@ -15,6 +15,7 @@ package main
 import "C"
 
 import (
+	"encoding/json"
 	"unsafe"
 
 	"github.com/Gemr007/TailCore/core/tunnel"
@@ -36,6 +37,22 @@ func TailCoreStop() *C.char {
 //export TailCoreStatus
 func TailCoreStatus() *C.char {
 	return C.CString(tunnel.Status())
+}
+
+// TailCoreTest блокирует вызывающий поток до конца замера, поэтому звать
+// его надо не из потока интерфейса.
+//
+//export TailCoreTest
+func TailCoreTest(config *C.char, timeoutSeconds C.int) *C.char {
+	result, err := tunnel.Test(C.GoString(config), int(timeoutSeconds))
+	if err != nil {
+		// Ошибку отдаём в той же строке, что и результат: на границе C у
+		// нас одно возвращаемое значение, и различает их вызывающая
+		// сторона по наличию ключа error.
+		failure, _ := json.Marshal(map[string]string{"error": err.Error()})
+		return C.CString(string(failure))
+	}
+	return C.CString(result)
 }
 
 //export TailCoreFree

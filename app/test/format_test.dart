@@ -1,5 +1,4 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:tailcore/core/endpoint.dart';
 import 'package:tailcore/format.dart';
 
 void main() {
@@ -31,38 +30,6 @@ void main() {
 
     test('без соединения — прочерк', () {
       expect(formatUptime(null), '—');
-    });
-  });
-
-  group('Endpoint.fromConfig', () {
-    test('берёт первый неслужебный исходящий', () {
-      final e = Endpoint.fromConfig('''
-        {"outbounds": [
-          {"type": "direct", "tag": "direct"},
-          {"type": "vless", "tag": "ams-02", "server": "1.2.3.4", "server_port": 8443}
-        ]}
-      ''');
-      expect(e, isNotNull);
-      expect(e!.protocol, 'vless');
-      expect(e.badge, 'VLESS');
-      expect(e.name, 'ams-02');
-      expect(e.address, '1.2.3.4:8443');
-    });
-
-    test('без тега показывает адрес — share-ссылки часто без имени', () {
-      final e = Endpoint.fromConfig(
-        '{"outbounds": [{"type": "trojan", "server": "example.com", "server_port": 443}]}',
-      );
-      expect(e!.name, 'example.com');
-    });
-
-    test('конфиг без узлов и битый конфиг не роняют экран', () {
-      expect(
-        Endpoint.fromConfig('{"outbounds": [{"type": "direct"}]}'),
-        isNull,
-      );
-      expect(Endpoint.fromConfig('not json at all'), isNull);
-      expect(Endpoint.fromConfig('{}'), isNull);
     });
   });
 }

@@ -2,41 +2,18 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
-import '../core/endpoint.dart';
+import '../core/server.dart';
+import '../core/servers_store.dart';
+import '../core/singbox_config.dart';
 import '../core/tunnel.dart';
 import '../format.dart';
 import '../theme.dart';
 import '../widgets/panel.dart';
 
-/// Временный конфиг, пока нет экрана серверов: без него нечего передать в
-/// ядро, а кнопка «Подключить» должна работать уже сейчас.
-/// TODO(шаг 7): брать конфиг выбранного сервера.
-const _placeholderConfig = '''
-{
-  "inbounds": [
-    {"type": "mixed", "tag": "local", "listen": "127.0.0.1", "listen_port": 2080}
-  ],
-  "outbounds": [
-    {
-      "type": "vless",
-      "tag": "ams-02 · reality",
-      "server": "185.229.59.22",
-      "server_port": 8443,
-      "uuid": "00000000-0000-0000-0000-000000000000",
-      "flow": "xtls-rprx-vision",
-      "tls": {
-        "enabled": true,
-        "server_name": "www.cloudflare.com",
-        "utls": {"enabled": true, "fingerprint": "chrome"}
-      }
-    },
-    {"type": "direct", "tag": "direct"}
-  ]
-}
-''';
-
 class DashboardScreen extends StatefulWidget {
-  const DashboardScreen({super.key});
+  const DashboardScreen({super.key, required this.store});
+
+  final ServersStore store;
 
   @override
   State<DashboardScreen> createState() => _DashboardScreenState();
@@ -65,7 +42,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   double? _upSpeed;
   double? _downSpeed;
 
-  final _endpoint = Endpoint.fromConfig(_placeholderConfig);
+  Server? get _server => widget.store.active;
 
   @override
   void initState() {
@@ -136,6 +113,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Future<void> _toggle() async {
     if (_busy) return;
     final running = _status?.state == TunnelState.running;
+    final server = _server;
+    if (!running && server == null) {
+      setState(() => _actionError = 'Сначала добавьте узел на экране серверов');
+      return;
+    }
     setState(() {
       _busy = true;
       _actionError = null;
@@ -144,7 +126,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       if (running) {
         await TunnelCore.instance.stop();
       } else {
-        await TunnelCore.instance.start(_placeholderConfig);
+        await TunnelCore.instance.start(buildRunConfig(server!));
       }
     } on TunnelException catch (e) {
       if (mounted) setState(() => _actionError = e.message);
@@ -183,7 +165,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   String get _statusLine {
     if (_status == null) return 'ЯДРО НЕДОСТУПНО';
     return switch (_state) {
-      TunnelState.running => 'ТУННЕЛЬ ПОДНЯТ · ${_endpoint?.badge ?? 'DIRECT'}',
+      TunnelState.running => 'ТУННЕЛЬ ПОДНЯТ · ${_server?.badge ?? 'DIRECT'}',
       TunnelState.starting => 'ПОДКЛЮЧЕНИЕ...',
       TunnelState.stopped => 'БЕЗ ЗАЩИТЫ',
     };
@@ -192,7 +174,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   Widget build(BuildContext context) {
     final wide = MediaQuery.sizeOf(context).width >= 700;
-    return wide ? _buildDesktop() : _buildMobile();
+    // Слушаем хранилище: активный узел меняется на соседнем экране.
+    return ListenableBuilder(
+      listenable: widget.store,
+      builder: (context, _) => wide ? _buildDesktop() : _buildMobile(),
+    );
   }
 
   // --- Мобильная раскладка: одна крупная кнопка и ничего лишнего ---
@@ -218,7 +204,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ],
             ),
           ),
-          if (_endpoint != null) _EndpointCard(endpoint: _endpoint),
+          if (_server != null) _ServerCard(server: _server!),
           const SizedBox(height: 14),
           Row(
             children: [
@@ -275,11 +261,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     ),
                     _Field(
                       label: 'АКТИВНЫЙ УЗЕЛ',
-                      value: _endpoint?.name ?? '—',
+                      value: _server?.name ?? '—',
                     ),
                     _Field(
                       label: 'ПРОТОКОЛ',
-                      value: _endpoint?.badge ?? '—',
+                      value: _server?.badge ?? '—',
                       monoValue: true,
                     ),
                     _Field(
@@ -310,7 +296,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   ),
                   _Field(
                     label: 'АДРЕС ВЫХОДА',
-                    value: _connected ? (_endpoint?.address ?? '—') : '—',
+                    value: _connected ? (_server?.address ?? '—') : '—',
                     monoValue: true,
                     alignEnd: true,
                   ),
@@ -506,14 +492,13 @@ class _StatusLine extends StatelessWidget {
   }
 }
 
-class _EndpointCard extends StatelessWidget {
-  const _EndpointCard({required this.endpoint});
+class _ServerCard extends StatelessWidget {
+  const _ServerCard({required this.server});
 
-  final Endpoint? endpoint;
+  final Server server;
 
   @override
   Widget build(BuildContext context) {
-    final e = endpoint!;
     return Panel(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
       child: Row(
@@ -522,13 +507,22 @@ class _EndpointCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(e.name, style: Theme.of(context).textTheme.titleMedium),
+                Text(
+                  server.name,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
                 const SizedBox(height: 3),
-                Text(e.address, style: monoStyle(size: 11, color: C.textMuted)),
+                Text(
+                  server.address,
+                  overflow: TextOverflow.ellipsis,
+                  style: monoStyle(size: 11, color: C.textMuted),
+                ),
               ],
             ),
           ),
-          ProtocolBadge(protocol: e.badge),
+          const SizedBox(width: 10),
+          ProtocolBadge(protocol: server.badge),
         ],
       ),
     );

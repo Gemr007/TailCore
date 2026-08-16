@@ -1,12 +1,39 @@
 import 'package:flutter/material.dart';
 
+import 'core/servers_store.dart';
 import 'screens/dashboard.dart';
+import 'screens/servers.dart';
 import 'theme.dart';
 
 void main() => runApp(const TailCoreApp());
 
-class TailCoreApp extends StatelessWidget {
-  const TailCoreApp({super.key});
+class TailCoreApp extends StatefulWidget {
+  const TailCoreApp({super.key, this.store});
+
+  /// Хранилище узлов. Подставляется в тестах; в приложении создаётся здесь
+  /// и живёт всё время работы.
+  final ServersStore? store;
+
+  @override
+  State<TailCoreApp> createState() => _TailCoreAppState();
+}
+
+class _TailCoreAppState extends State<TailCoreApp> {
+  late final ServersStore _store = widget.store ?? ServersStore();
+
+  @override
+  void initState() {
+    super.initState();
+    // Список узлов не нужен для первого кадра: экран рисуется пустым и
+    // наполняется, когда файл прочитан.
+    unawaited(_store.load());
+  }
+
+  @override
+  void dispose() {
+    _store.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -16,7 +43,7 @@ class TailCoreApp extends StatelessWidget {
       // Светлой темы у приложения не предполагается — не тема по умолчанию,
       // а единственная.
       theme: buildTheme(),
-      home: const AppShell(),
+      home: AppShell(store: _store),
     );
   }
 }
@@ -41,7 +68,9 @@ enum Section {
 /// снизу. Порог по ширине, а не по платформе, — узкое окно на десктопе
 /// ведёт себя как телефон, и это правильно.
 class AppShell extends StatefulWidget {
-  const AppShell({super.key});
+  const AppShell({super.key, required this.store});
+
+  final ServersStore store;
 
   @override
   State<AppShell> createState() => _AppShellState();
@@ -57,10 +86,10 @@ class _AppShellState extends State<AppShell> {
     final wide = MediaQuery.sizeOf(context).width >= _sidebarBreakpoint;
     final body = SafeArea(
       child: switch (_section) {
-        Section.dashboard => const DashboardScreen(),
-        // Содержимое приезжает отдельными шагами: Серверы — шаг 7,
-        // Настройки — шаг 10.
-        _ => _SectionPlaceholder(section: _section),
+        Section.dashboard => DashboardScreen(store: widget.store),
+        Section.servers => ServersScreen(store: widget.store),
+        // Настройки приезжают шагом 10.
+        Section.settings => _SectionPlaceholder(section: _section),
       },
     );
 

@@ -10,6 +10,7 @@ $ErrorActionPreference = 'Stop'
 $root = Join-Path $PSScriptRoot '..' | Resolve-Path
 $core = Join-Path $root 'core'
 $out = Join-Path $root 'app\android\app\libs\tailcore.aar'
+$tags = (Get-Content (Join-Path $PSScriptRoot 'build-tags.txt') -Raw).Trim()
 
 if (-not $env:ANDROID_HOME) { throw 'ANDROID_HOME is not set' }
 $ndk = Get-ChildItem (Join-Path $env:ANDROID_HOME 'ndk') -Directory -ErrorAction SilentlyContinue |
@@ -29,7 +30,7 @@ try {
 
     # androidapi 21 — минимум, который ещё поддерживает VpnService без
     # оговорок; поднимем, когда упрёмся в конкретное API.
-    gomobile bind -target=android -androidapi 21 -tags with_utls -o $out `
+    gomobile bind -target=android -androidapi 21 -tags $tags -o $out `
         github.com/Gemr007/TailCore/core/tunnel
     if ($LASTEXITCODE -ne 0) { throw "gomobile bind failed" }
 }

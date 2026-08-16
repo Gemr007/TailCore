@@ -5,8 +5,10 @@
 # Нужен рабочий cgo — на Linux gcc/clang, на macOS Xcode command line tools.
 set -eu
 
-core="$(cd "$(dirname "$0")/../core" && pwd)"
+here="$(cd "$(dirname "$0")" && pwd)"
+core="$here/../core"
 out="$core/build"
+tags="$(tr -d '[:space:]' < "$here/build-tags.txt")"
 
 case "$(uname -s)" in
   Darwin) ext=dylib ;;
@@ -15,6 +17,6 @@ esac
 
 mkdir -p "$out"
 cd "$core"
-CGO_ENABLED=1 go build -tags with_utls -buildmode=c-shared -o "$out/libtailcore.$ext" ./lib
+CGO_ENABLED=1 go build -tags "$tags" -buildmode=c-shared -o "$out/libtailcore.$ext" ./lib
 
 ls -l "$out"

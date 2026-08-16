@@ -7,13 +7,14 @@
 $ErrorActionPreference = 'Stop'
 $core = Join-Path $PSScriptRoot '..\core' | Resolve-Path
 $out = Join-Path $core 'build'
+$tags = (Get-Content (Join-Path $PSScriptRoot 'build-tags.txt') -Raw).Trim()
 
 New-Item -ItemType Directory -Force -Path $out | Out-Null
 $env:CGO_ENABLED = '1'
 
 Push-Location $core
 try {
-    go build -tags with_utls -buildmode=c-shared -o (Join-Path $out 'tailcore.dll') ./lib
+    go build -tags $tags -buildmode=c-shared -o (Join-Path $out 'tailcore.dll') ./lib
     if ($LASTEXITCODE -ne 0) { throw "go build failed with exit code $LASTEXITCODE" }
 }
 finally {
