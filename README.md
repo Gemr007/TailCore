@@ -76,6 +76,23 @@ v2fly/domain-list-community, SagerNet/sing-geosite. Обязательная ф�
 
 Экраны подписки/оплаты и управления устройствами в эту итерацию не входят.
 
+## Сборка ядра
+
+sing-box прячет часть протоколов за build-тегами, без них конфиг падает уже
+на старте (`uTLS is not included in this build`). Собирать и тестировать
+только с тегами:
+
+```
+cd core
+go build -tags with_utls ./...
+go test  -tags with_utls ./...
+go run   -tags with_utls ./cmd/talecore testdata/vless.json
+```
+
+Текущий набор тегов: `with_utls` (uTLS-отпечатки для VLESS+Reality/XTLS).
+По мере добавления протоколов сюда доедут `with_quic` (TUIC, Hysteria/2),
+`with_wireguard`, `with_gvisor` (TUN).
+
 ## Статус
 
-Итерация 1, шаг 1 из 13 — скелет репозитория.
+Итерация 1, шаг 2 из 13 — Go-ядро: обёртка sing-box (start/stop/status) и CLI.
