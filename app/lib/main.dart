@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'screens/dashboard.dart';
+
 void main() => runApp(const TaleCoreApp());
 
 class TaleCoreApp extends StatelessWidget {
@@ -59,7 +61,14 @@ class _AppShellState extends State<AppShell> {
   @override
   Widget build(BuildContext context) {
     final wide = MediaQuery.sizeOf(context).width >= _railBreakpoint;
-    final body = SafeArea(child: _SectionPlaceholder(section: _section));
+    final body = SafeArea(
+      child: switch (_section) {
+        Section.dashboard => const DashboardScreen(),
+        // Содержимое приезжает отдельными шагами: Servers — шаг 7,
+        // Settings — шаг 10.
+        _ => _SectionPlaceholder(section: _section),
+      },
+    );
 
     if (wide) {
       return Scaffold(
@@ -105,8 +114,7 @@ class _AppShellState extends State<AppShell> {
   void _select(int index) => setState(() => _section = Section.values[index]);
 }
 
-/// Заглушка раздела. Содержимое приезжает отдельными шагами:
-/// Dashboard — шаг 6, Servers — шаг 7, Settings — шаг 10.
+/// Заглушка ещё не сделанного раздела.
 class _SectionPlaceholder extends StatelessWidget {
   const _SectionPlaceholder({required this.section});
 

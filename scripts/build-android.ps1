@@ -9,7 +9,7 @@
 $ErrorActionPreference = 'Stop'
 $root = Join-Path $PSScriptRoot '..' | Resolve-Path
 $core = Join-Path $root 'core'
-$out = Join-Path $root 'app\android\libs\talecore.aar'
+$out = Join-Path $root 'app\android\app\libs\talecore.aar'
 
 if (-not $env:ANDROID_HOME) { throw 'ANDROID_HOME is not set' }
 $ndk = Get-ChildItem (Join-Path $env:ANDROID_HOME 'ndk') -Directory -ErrorAction SilentlyContinue |

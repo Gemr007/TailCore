@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:talecore/main.dart';
+import 'package:talecore/screens/dashboard.dart';
 
 /// Ставит размер окна на время теста: оболочка выбирает рейл или нижнюю
 /// панель по ширине, так что размер окна здесь — сам предмет проверки.
@@ -28,14 +29,17 @@ void main() {
   testWidgets('переключение раздела меняет содержимое', (tester) async {
     await pumpAt(tester, const Size(420, 900));
 
-    // Название раздела есть и в панели навигации, и в теле экрана.
-    expect(find.text(Section.dashboard.label), findsNWidgets(2));
+    // Стартуем на соединении: в панели навигации его название есть один раз,
+    // в теле — экран соединения.
+    expect(find.byType(DashboardScreen), findsOneWidget);
     expect(find.text(Section.servers.label), findsOneWidget);
 
     await tester.tap(find.text(Section.servers.label));
     await tester.pumpAndSettle();
 
+    // У заглушки название раздела написано в теле — значит, оно встретится
+    // дважды: в панели и на экране.
     expect(find.text(Section.servers.label), findsNWidgets(2));
-    expect(find.text(Section.dashboard.label), findsOneWidget);
+    expect(find.byType(DashboardScreen), findsNothing);
   });
 }
