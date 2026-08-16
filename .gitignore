@@ -1,0 +1,33 @@
+# Flutter / Dart
+app/.dart_tool/
+app/build/
+app/.flutter-plugins
+app/.flutter-plugins-dependencies
+app/.packages
+app/pubspec.lock
+app/**/Generated.xcconfig
+app/**/local.properties
+app/**/.gradle/
+
+# Go
+core/bin/
+*.exe
+*.so
+*.dll
+*.dylib
+*.aar
+*.jar
+
+# Native build output
+build/
+dist/
+
+# Rule-sets downloaded at build time
+assets/rulesets/*.srs
+
+# IDE / OS
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
