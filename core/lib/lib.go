@@ -21,25 +21,25 @@ import (
 )
 
 // Каждая возвращённая наружу строка выделена malloc'ом и принадлежит
-// вызывающей стороне: её обязан освободить TaleCoreFree.
+// вызывающей стороне: её обязан освободить TailCoreFree.
 
-//export TaleCoreStart
-func TaleCoreStart(config *C.char) *C.char {
+//export TailCoreStart
+func TailCoreStart(config *C.char) *C.char {
 	return cError(tunnel.Start(C.GoString(config)))
 }
 
-//export TaleCoreStop
-func TaleCoreStop() *C.char {
+//export TailCoreStop
+func TailCoreStop() *C.char {
 	return cError(tunnel.Stop())
 }
 
-//export TaleCoreStatus
-func TaleCoreStatus() *C.char {
+//export TailCoreStatus
+func TailCoreStatus() *C.char {
 	return C.CString(tunnel.Status())
 }
 
-//export TaleCoreFree
-func TaleCoreFree(s *C.char) {
+//export TailCoreFree
+func TailCoreFree(s *C.char) {
 	C.free(unsafe.Pointer(s))
 }
 

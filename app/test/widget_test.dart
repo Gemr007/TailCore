@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:talecore/main.dart';
-import 'package:talecore/screens/dashboard.dart';
+import 'package:tailcore/main.dart';
+import 'package:tailcore/screens/dashboard.dart';
 
 /// Ставит размер окна на время теста: оболочка выбирает рейл или нижнюю
 /// панель по ширине, так что размер окна здесь — сам предмет проверки.
@@ -9,7 +9,7 @@ Future<void> pumpAt(WidgetTester tester, Size size) async {
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1.0;
   addTearDown(tester.view.reset);
-  await tester.pumpWidget(const TaleCoreApp());
+  await tester.pumpWidget(const TailCoreApp());
   await tester.pumpAndSettle();
 }
 

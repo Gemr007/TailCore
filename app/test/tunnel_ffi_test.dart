@@ -4,7 +4,7 @@ library;
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:talecore/core/tunnel.dart';
+import 'package:tailcore/core/tunnel.dart';
 
 /// Гоняет десктопный мост против настоящей cgo-библиотеки — того же кода,
 /// что поедет в приложение. Разбор JSON проверяется отдельно и без ядра;

@@ -2,15 +2,15 @@ import 'package:flutter/material.dart';
 
 import 'screens/dashboard.dart';
 
-void main() => runApp(const TaleCoreApp());
+void main() => runApp(const TailCoreApp());
 
-class TaleCoreApp extends StatelessWidget {
-  const TaleCoreApp({super.key});
+class TailCoreApp extends StatelessWidget {
+  const TailCoreApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'TaleCore',
+      title: 'TailCore',
       debugShowCheckedModeBanner: false,
       // Светлой темы у приложения не предполагается — не тема по умолчанию,
       // а единственная.

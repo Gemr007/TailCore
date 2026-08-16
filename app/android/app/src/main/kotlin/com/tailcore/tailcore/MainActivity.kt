@@ -1,4 +1,4 @@
-package com.talecore.talecore
+package com.tailcore.tailcore
 
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -41,6 +41,6 @@ class MainActivity : FlutterActivity() {
     }
 
     private companion object {
-        const val CHANNEL = "talecore/tunnel"
+        const val CHANNEL = "tailcore/tunnel"
     }
 }

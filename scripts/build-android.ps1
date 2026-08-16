@@ -1,4 +1,4 @@
-# Собирает ядро в Android-библиотеку: app/android/libs/talecore.aar.
+# Собирает ядро в Android-библиотеку: app/android/app/libs/tailcore.aar.
 #
 # gomobile bind навешивает Java-обёртку прямо на пакет core/tunnel —
 # отдельный слой-переходник не нужен, его сигнатуры (string in, error out)
@@ -9,7 +9,7 @@
 $ErrorActionPreference = 'Stop'
 $root = Join-Path $PSScriptRoot '..' | Resolve-Path
 $core = Join-Path $root 'core'
-$out = Join-Path $root 'app\android\app\libs\talecore.aar'
+$out = Join-Path $root 'app\android\app\libs\tailcore.aar'
 
 if (-not $env:ANDROID_HOME) { throw 'ANDROID_HOME is not set' }
 $ndk = Get-ChildItem (Join-Path $env:ANDROID_HOME 'ndk') -Directory -ErrorAction SilentlyContinue |

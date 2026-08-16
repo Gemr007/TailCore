@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:talecore/core/tunnel.dart';
+import 'package:tailcore/core/tunnel.dart';
 
 void main() {
   test('разбирает статус работающего туннеля', () {

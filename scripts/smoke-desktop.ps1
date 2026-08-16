@@ -1,22 +1,22 @@
-# Проверяет, что собранная talecore.dll действительно экспортирует C-ABI и
+# Проверяет, что собранная tailcore.dll действительно экспортирует C-ABI и
 # что её можно дёргать снаружи Go. Без этого «библиотека собралась» ничего
 # не значит: слинковаться и не иметь рабочих символов — обычное дело.
 
 $ErrorActionPreference = 'Stop'
-$dll = Join-Path $PSScriptRoot '..\core\build\talecore.dll' | Resolve-Path
+$dll = Join-Path $PSScriptRoot '..\core\build\tailcore.dll' | Resolve-Path
 
 Add-Type -TypeDefinition @"
 using System;
 using System.Runtime.InteropServices;
-public static class TaleCore {
+public static class TailCore {
     [DllImport(@"$dll", CallingConvention = CallingConvention.Cdecl)]
-    public static extern IntPtr TaleCoreStart(string config);
+    public static extern IntPtr TailCoreStart(string config);
     [DllImport(@"$dll", CallingConvention = CallingConvention.Cdecl)]
-    public static extern IntPtr TaleCoreStop();
+    public static extern IntPtr TailCoreStop();
     [DllImport(@"$dll", CallingConvention = CallingConvention.Cdecl)]
-    public static extern IntPtr TaleCoreStatus();
+    public static extern IntPtr TailCoreStatus();
     [DllImport(@"$dll", CallingConvention = CallingConvention.Cdecl)]
-    public static extern void TaleCoreFree(IntPtr s);
+    public static extern void TailCoreFree(IntPtr s);
 }
 "@
 
@@ -25,18 +25,18 @@ public static class TaleCore {
 function take([IntPtr]$p) {
     if ($p -eq [IntPtr]::Zero) { return $null }
     $s = [Runtime.InteropServices.Marshal]::PtrToStringAnsi($p)
-    [TaleCore]::TaleCoreFree($p)
+    [TailCore]::TailCoreFree($p)
     return $s
 }
 
-$status = (take ([TaleCore]::TaleCoreStatus())) | ConvertFrom-Json
+$status = (take ([TailCore]::TailCoreStatus())) | ConvertFrom-Json
 if ($status.state -ne 'stopped') { throw "fresh library reports state '$($status.state)', want 'stopped'" }
 
-$err = take ([TaleCore]::TaleCoreStart('{"outbounds":[{"type":"no-such-protocol"}]}'))
+$err = take ([TailCore]::TailCoreStart('{"outbounds":[{"type":"no-such-protocol"}]}'))
 if (-not $err) { throw 'broken config started without an error' }
 
 # Stop на незапущенном ядре — no-op, ошибки быть не должно.
-$err = take ([TaleCore]::TaleCoreStop())
+$err = take ([TailCore]::TailCoreStop())
 if ($err) { throw "stop on idle core returned an error: $err" }
 
 Write-Output 'smoke-desktop: OK'

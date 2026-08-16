@@ -89,13 +89,13 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
-            VALUE "CompanyName", "com.talecore" "\0"
-            VALUE "FileDescription", "talecore" "\0"
+            VALUE "CompanyName", "com.tailcore" "\0"
+            VALUE "FileDescription", "tailcore" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "talecore" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2026 com.talecore. All rights reserved." "\0"
-            VALUE "OriginalFilename", "talecore.exe" "\0"
-            VALUE "ProductName", "talecore" "\0"
+            VALUE "InternalName", "tailcore" "\0"
+            VALUE "LegalCopyright", "Copyright (C) 2026 com.tailcore. All rights reserved." "\0"
+            VALUE "OriginalFilename", "tailcore.exe" "\0"
+            VALUE "ProductName", "tailcore" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

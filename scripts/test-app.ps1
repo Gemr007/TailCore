@@ -7,8 +7,8 @@ $ErrorActionPreference = 'Stop'
 $root = Join-Path $PSScriptRoot '..' | Resolve-Path
 $build = Join-Path $root 'core\build'
 
-if (-not (Test-Path (Join-Path $build 'talecore.dll'))) {
-    throw 'core/build/talecore.dll not found — run scripts/build-desktop.ps1 first'
+if (-not (Test-Path (Join-Path $build 'tailcore.dll'))) {
+    throw 'core/build/tailcore.dll not found — run scripts/build-desktop.ps1 first'
 }
 
 $env:Path = "$build;$env:Path"

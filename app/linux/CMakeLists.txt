@@ -4,10 +4,10 @@ project(runner LANGUAGES CXX)
 
 # The name of the executable created for the application. Change this to change
 # the on-disk name of your application.
-set(BINARY_NAME "talecore")
+set(BINARY_NAME "tailcore")
 # The unique GTK application identifier for this application. See:
 # https://wiki.gnome.org/HowDoI/ChooseApplicationID
-set(APPLICATION_ID "com.talecore.talecore")
+set(APPLICATION_ID "com.tailcore.tailcore")
 
 # Explicitly opt in to modern CMake behaviors to avoid warnings with recent
 # versions of CMake.
@@ -100,13 +100,13 @@ install(FILES "${FLUTTER_ICU_DATA_FILE}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}
 install(FILES "${FLUTTER_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
   COMPONENT Runtime)
 
-# Ядро TaleCore кладём туда же, где лежит libflutter_linux_gtk.so: runner
+# Ядро TailCore кладём туда же, где лежит libflutter_linux_gtk.so: runner
 # уже ищет библиотеки в lib/ через RPATH, отдельная настройка не нужна.
-set(TALECORE_LIBRARY "${CMAKE_CURRENT_SOURCE_DIR}/../../core/build/libtalecore.so")
-if(NOT EXISTS "${TALECORE_LIBRARY}")
-  message(FATAL_ERROR "libtalecore.so not found — run scripts/build-desktop.sh first")
+set(TAILCORE_LIBRARY "${CMAKE_CURRENT_SOURCE_DIR}/../../core/build/libtailcore.so")
+if(NOT EXISTS "${TAILCORE_LIBRARY}")
+  message(FATAL_ERROR "libtailcore.so not found — run scripts/build-desktop.sh first")
 endif()
-install(FILES "${TALECORE_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
+install(FILES "${TAILCORE_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
   COMPONENT Runtime)
 
 foreach(bundled_library ${PLUGIN_BUNDLED_LIBRARIES})

@@ -99,22 +99,22 @@ class _FfiCore extends TunnelCore {
   final DynamicLibrary _lib;
 
   static String get _libraryFileName {
-    if (Platform.isWindows) return 'talecore.dll';
-    if (Platform.isMacOS) return 'libtalecore.dylib';
-    return 'libtalecore.so';
+    if (Platform.isWindows) return 'tailcore.dll';
+    if (Platform.isMacOS) return 'libtailcore.dylib';
+    return 'libtailcore.so';
   }
 
   late final _start = _lib.lookupFunction<_StartNative, _StartNative>(
-    'TaleCoreStart',
+    'TailCoreStart',
   );
   late final _stop = _lib
-      .lookupFunction<_VoidToStringNative, _VoidToStringNative>('TaleCoreStop');
+      .lookupFunction<_VoidToStringNative, _VoidToStringNative>('TailCoreStop');
   late final _status = _lib
       .lookupFunction<_VoidToStringNative, _VoidToStringNative>(
-        'TaleCoreStatus',
+        'TailCoreStatus',
       );
   late final _Free _free = _lib.lookupFunction<_FreeNative, _Free>(
-    'TaleCoreFree',
+    'TailCoreFree',
   );
 
   /// Забирает строку у ядра и сразу отдаёт память обратно: всё, что пришло
@@ -158,7 +158,7 @@ class _FfiCore extends TunnelCore {
 // --- Android: platform channel поверх .aar от gomobile ---
 
 class _ChannelCore extends TunnelCore {
-  static const _channel = MethodChannel('talecore/tunnel');
+  static const _channel = MethodChannel('tailcore/tunnel');
 
   @override
   Future<void> start(String configJson) => _invoke('start', configJson);

@@ -1,10 +1,10 @@
 # Project-level configuration.
 cmake_minimum_required(VERSION 3.14)
-project(talecore LANGUAGES CXX)
+project(tailcore LANGUAGES CXX)
 
 # The name of the executable created for the application. Change this to change
 # the on-disk name of your application.
-set(BINARY_NAME "talecore")
+set(BINARY_NAME "tailcore")
 
 # Explicitly opt in to modern CMake behaviors to avoid warnings with recent
 # versions of CMake.
@@ -81,13 +81,13 @@ install(FILES "${FLUTTER_ICU_DATA_FILE}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}
 install(FILES "${FLUTTER_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
   COMPONENT Runtime)
 
-# Ядро TaleCore кладём рядом с exe: dart:ffi открывает библиотеку по имени,
+# Ядро TailCore кладём рядом с exe: dart:ffi открывает библиотеку по имени,
 # и искать её она будет в каталоге приложения.
-set(TALECORE_LIBRARY "${CMAKE_CURRENT_SOURCE_DIR}/../../core/build/talecore.dll")
-if(NOT EXISTS "${TALECORE_LIBRARY}")
-  message(FATAL_ERROR "talecore.dll not found — run scripts/build-desktop.ps1 first")
+set(TAILCORE_LIBRARY "${CMAKE_CURRENT_SOURCE_DIR}/../../core/build/tailcore.dll")
+if(NOT EXISTS "${TAILCORE_LIBRARY}")
+  message(FATAL_ERROR "tailcore.dll not found — run scripts/build-desktop.ps1 first")
 endif()
-install(FILES "${TALECORE_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
+install(FILES "${TAILCORE_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
   COMPONENT Runtime)
 
 if(PLUGIN_BUNDLED_LIBRARIES)

@@ -5,7 +5,7 @@ plugins {
 }
 
 android {
-    namespace = "com.talecore.talecore"
+    namespace = "com.tailcore.tailcore"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -16,7 +16,7 @@ android {
 
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.talecore.talecore"
+        applicationId = "com.tailcore.tailcore"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
@@ -42,7 +42,7 @@ dependencies {
     // Ядро, собранное scripts/build-android.ps1. В git не лежит —
     // без сборки .aar модуль не соберётся, и это правильно: молча
     // подсунуть протухшую копию ядра хуже, чем упасть.
-    implementation(files("libs/talecore.aar"))
+    implementation(files("libs/tailcore.aar"))
 }
 
 kotlin {

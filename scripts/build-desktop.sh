@@ -1,6 +1,6 @@
 #!/bin/sh
 # Собирает ядро в динамическую библиотеку для Linux/macOS:
-# core/build/libtalecore.so или .dylib (+ заголовок libtalecore.h).
+# core/build/libtailcore.so или .dylib (+ заголовок libtailcore.h).
 #
 # Нужен рабочий cgo — на Linux gcc/clang, на macOS Xcode command line tools.
 set -eu
@@ -15,6 +15,6 @@ esac
 
 mkdir -p "$out"
 cd "$core"
-CGO_ENABLED=1 go build -tags with_utls -buildmode=c-shared -o "$out/libtalecore.$ext" ./lib
+CGO_ENABLED=1 go build -tags with_utls -buildmode=c-shared -o "$out/libtailcore.$ext" ./lib
 
 ls -l "$out"

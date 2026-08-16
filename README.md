@@ -1,4 +1,4 @@
-# TaleCore
+# TailCore
 
 Кроссплатформенный VPN-клиент. Android, Windows, Linux, macOS.
 iOS в первую итерацию не входит, но архитектура его не исключает.
@@ -86,7 +86,7 @@ sing-box прячет часть протоколов за build-тегами, �
 cd core
 go build -tags with_utls ./...
 go test  -tags with_utls ./...
-go run   -tags with_utls ./cmd/talecore testdata/vless.json
+go run   -tags with_utls ./cmd/tailcore testdata/vless.json
 ```
 
 Текущий набор тегов: `with_utls` (uTLS-отпечатки для VLESS+Reality/XTLS).
@@ -96,13 +96,13 @@ go run   -tags with_utls ./cmd/talecore testdata/vless.json
 ## Нативные библиотеки
 
 ```
-scripts/build-desktop.ps1   # Windows: core/build/talecore.dll + .h
-scripts/build-desktop.sh    # Linux/macOS: core/build/libtalecore.so|.dylib
+scripts/build-desktop.ps1   # Windows: core/build/tailcore.dll + .h
+scripts/build-desktop.sh    # Linux/macOS: core/build/libtailcore.so|.dylib
 scripts/smoke-desktop.ps1   # дёргает C-ABI собранной .dll снаружи Go
-scripts/build-android.ps1   # app/android/libs/talecore.aar (4 ABI)
+scripts/build-android.ps1   # app/android/libs/tailcore.aar (4 ABI)
 ```
 
-Десктоп получает C-ABI: `TaleCoreStart`/`Stop`/`Status`/`Free`, все строки
+Десктоп получает C-ABI: `TailCoreStart`/`Stop`/`Status`/`Free`, все строки
 владеет вызывающая сторона. Android получает Java-класс `tunnel.Tunnel` —
 gomobile навешивает обёртку прямо на пакет `core/tunnel`, промежуточный
 слой не нужен:
@@ -142,8 +142,8 @@ Gradle на Android падают, если библиотеки нет. Это �
 
 | Платформа | Механизм | Что вызывается |
 |-----------|----------|----------------|
-| Windows/Linux/macOS | `dart:ffi` | `TaleCoreStart/Stop/Status/Free` |
-| Android | `MethodChannel` `talecore/tunnel` | `tunnel.Tunnel.start/stop/status` |
+| Windows/Linux/macOS | `dart:ffi` | `TailCoreStart/Stop/Status/Free` |
+| Android | `MethodChannel` `tailcore/tunnel` | `tunnel.Tunnel.start/stop/status` |
 
 Остальное приложение работает только с `TunnelCore` и о различии не знает.
 Когда дойдёт дело до iOS, здесь появится третья ветка — код экранов не
