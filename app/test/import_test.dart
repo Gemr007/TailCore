@@ -261,21 +261,94 @@ void main() {
       expect(parseImport(sub).servers.map((s) => s.name), ['a', 'b']);
     });
 
-    test('узлы с транспортом Xray отвергаются, а не упрощаются до TCP', () {
+    test('узел на XHTTP собирается для Xray, а не отвергается', () {
+      // Форма взята с настоящей подписки пользователя.
+      final result = parseImport(
+        'vless://u@xh.example.com:443?type=xhttp&path=%2Fchunk'
+        '&host=cdn.example.com&security=tls&sni=cdn.example.com&fp=chrome'
+        '#через-xhttp',
+      );
+
+      final s = result.servers.single;
+      expect(s.viaXray, isTrue);
+      expect(s.host, 'xh.example.com');
+      expect(s.port, 443);
+      // Ключ узла отличает движок: тот же адрес встречается в подписке и
+      // обычным узлом, и узлом на XHTTP.
+      expect(s.id, startsWith('xray+'));
+
+      // Исходящий в формате Xray, а не sing-box: протокол отдельно, адрес
+      // внутри settings.
+      expect(s.outbound['protocol'], 'vless');
+      final vnext = ((s.outbound['settings'] as Map)['vnext'] as List).single;
+      expect(vnext['address'], 'xh.example.com');
+      expect((vnext['users'] as List).single['id'], 'u');
+
+      final stream = s.outbound['streamSettings'] as Map;
+      expect(stream['network'], 'xhttp');
+      expect(stream['security'], 'tls');
+      expect((stream['xhttpSettings'] as Map)['path'], '/chunk');
+      expect((stream['tlsSettings'] as Map)['fingerprint'], 'chrome');
+    });
+
+    test('mKCP и Reality тоже уходят на Xray', () {
+      final kcp = parseImport(
+        'vless://u@k.example.com:2052?type=kcp&headerType=srtp&seed=zzz#kcp',
+      ).servers.single;
+      expect(kcp.viaXray, isTrue);
+      final kcpStream = kcp.outbound['streamSettings'] as Map;
+      expect(kcpStream['network'], 'kcp');
+      expect((kcpStream['kcpSettings'] as Map)['header'], {'type': 'srtp'});
+      expect((kcpStream['kcpSettings'] as Map)['seed'], 'zzz');
+
+      // Reality поверх Xray-транспорта описывается по-своему.
+      final reality = parseImport(
+        'vless://u@r.example.com:443?type=xhttp&security=reality'
+        '&pbk=key&sid=ab&sni=www.example.com&fp=chrome#reality-xhttp',
+      ).servers.single;
+      final settings =
+          (reality.outbound['streamSettings'] as Map)['realitySettings'] as Map;
+      expect(settings['publicKey'], 'key');
+      expect(settings['shortId'], 'ab');
+      expect(settings['serverName'], 'www.example.com');
+    });
+
+    test('узел на Xray переживает сохранение и чтение', () {
+      final saved = parseImport(
+        'vless://u@xh.example.com:443?type=xhttp&security=tls#xhttp',
+      ).servers.single;
+      final restored = Server.fromJson(saved.toJson())!;
+
+      expect(restored.viaXray, isTrue);
+      expect(restored.id, saved.id);
+      expect(restored.host, 'xh.example.com');
+      expect(restored.outbound['protocol'], 'vless');
+    });
+
+    test('обычные узлы и узлы на Xray разъезжаются по движкам', () {
       // Форма взята с настоящей подписки: рядом с обычными узлами приходят
-      // узлы на XHTTP, которого в sing-box нет. Собрать из такого узла
-      // TCP-конфиг — значит отдать соединение, которое выглядит настроенным
-      // и молча не работает.
+      // узлы на XHTTP, которого в sing-box нет.
       final result = parseImport('''
         vless://u@ok.example.com:443?type=tcp&security=reality&pbk=k&sid=1#обычный
         vless://u@xh.example.com:443?type=xhttp&path=%2Fchunk&security=tls#через-xhttp
         vless://u@kcp.example.com:443?type=kcp&security=tls#через-kcp
       ''');
 
-      expect(result.servers.map((s) => s.name), ['обычный']);
-      expect(result.skipped.map((s) => s.name), ['через-xhttp', 'через-kcp']);
-      expect(result.skipped.first.reason, contains('XHTTP'));
-      expect(result.skipped.first.reason, contains('Xray'));
+      expect(result.skipped, isEmpty);
+      expect(result.servers.map((s) => s.name), [
+        'обычный',
+        'через-xhttp',
+        'через-kcp',
+      ]);
+      expect(result.servers.map((s) => s.viaXray), [false, true, true]);
+    });
+
+    test('транспорт, неизвестный обоим движкам, отвергается с причиной', () {
+      final result = parseImport(
+        'vless://u@x.example.com:443?type=невиданный&security=tls#странный',
+      );
+      expect(result.servers, isEmpty);
+      expect(result.skipped.single.reason, contains('невиданный'));
     });
 
     test('пустой и бессмысленный ввод дают пустой список, а не ошибку', () {

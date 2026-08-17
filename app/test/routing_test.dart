@@ -179,6 +179,74 @@ void main() {
     );
   });
 
+  test('узел на Xray едет цепочкой, а роутинг остаётся у sing-box', () {
+    final node = Server(
+      name: 'xhttp',
+      protocol: 'vless',
+      host: 'xh.example.com',
+      port: 443,
+      viaXray: true,
+      outbound: {
+        'protocol': 'vless',
+        'settings': {
+          'vnext': [
+            {'address': 'xh.example.com', 'port': 443},
+          ],
+        },
+        'streamSettings': {'network': 'xhttp'},
+      },
+    );
+
+    final config = jsonDecode(
+      buildRunConfig(
+        node,
+        bridgePort: 3333,
+        bypassGames: true,
+        bypassApps: {'discord'},
+        os: TargetOs.windows,
+        cachePath: '/tmp/c.db',
+      ),
+    ) as Map<String, dynamic>;
+
+    expect(config['engine'], 'chain');
+
+    // Xray держит только узел и мост: ничего лишнего ему знать не надо.
+    final xray = config['xray'] as Map<String, dynamic>;
+    expect((xray['inbounds'] as List).single['port'], 3333);
+    expect((xray['outbounds'] as List).single['tag'], 'proxy');
+    expect((xray['outbounds'] as List).single['protocol'], 'vless');
+
+    // Наверху sing-box со всем роутингом: узел для него — socks до моста.
+    final singbox = config['config'] as Map<String, dynamic>;
+    final proxy = (singbox['outbounds'] as List).first;
+    expect(proxy['type'], 'socks');
+    expect(proxy['server_port'], 3333);
+
+    // Главное ради чего цепочка: настройки продолжают действовать.
+    final rules = (singbox['route'] as Map)['rules'] as List;
+    expect(rules.first['process_name'], ['Discord.exe']);
+    expect(rules.last['rule_set'], gamesRuleSet);
+  });
+
+  test('узлы на Xray не попадают в конфиг замера', () {
+    final xray = Server(
+      name: 'x',
+      protocol: 'vless',
+      host: 'x.example.com',
+      port: 443,
+      viaXray: true,
+      outbound: {'protocol': 'vless'},
+    );
+
+    final config =
+        jsonDecode(buildTestConfig([_node(), xray])) as Map<String, dynamic>;
+    final tags = [for (final o in config['outbounds'] as List) o['tag']];
+
+    // Замер поднимает sing-box, а он исходящих Xray не понимает: попади
+    // такой узел в конфиг — не измерился бы вообще ни один.
+    expect(tags, [_node().id]);
+  });
+
   test('порт и резолвер берутся из настроек', () {
     final config = jsonDecode(
       buildRunConfig(_node(), localPort: 3128, dnsServer: '9.9.9.9'),

@@ -12,6 +12,7 @@ class Server {
     required this.port,
     required this.outbound,
     this.extras = const [],
+    this.viaXray = false,
   });
 
   /// Имя из share-ссылки или тега конфига; если его нет — адрес.
@@ -32,6 +33,16 @@ class Server {
   /// исходящим, а прокси ходит через него по `detour`.
   final List<Map<String, dynamic>> extras;
 
+  /// Узел поднимается Xray, а не sing-box: так живут транспорты, которых
+  /// в sing-box нет — XHTTP, mKCP, QUIC от Xray. Тогда в [outbound] лежит
+  /// исходящий в формате Xray, а не sing-box.
+  ///
+  /// Xray при этом не заменяет sing-box, а становится под ним: он держит
+  /// узел и отдаёт локальный socks, sing-box ходит через него и делает
+  /// весь роутинг. Иначе доменные правила и исключения приложений на таких
+  /// узлах молча перестали бы работать.
+  final bool viaXray;
+
   /// WireGuard в sing-box 1.13 живёт не среди исходящих, а в `endpoints`.
   /// Положить его к остальным — получить «unknown outbound type» на старте.
   bool get isEndpoint => protocol == 'wireguard';
@@ -50,7 +61,11 @@ class Server {
   /// Устойчивый ключ узла. Считается по адресу и протоколу: пересохранение
   /// подписки не должно ронять выбор пользователя, а имя узла провайдер
   /// меняет свободно.
-  String get id => '$protocol://$host:$port';
+  ///
+  /// Движок входит в ключ: один и тот же адрес встречается в подписке
+  /// дважды — обычным узлом и узлом на XHTTP, и это разные узлы.
+  String get id =>
+      viaXray ? 'xray+$protocol://$host:$port' : '$protocol://$host:$port';
 
   Map<String, dynamic> toJson() => {
     'name': name,
@@ -59,18 +74,37 @@ class Server {
     'port': port,
     'outbound': outbound,
     if (extras.isNotEmpty) 'extras': extras,
+    if (viaXray) 'via_xray': true,
   };
 
   static Server? fromJson(Map<String, dynamic> json) {
     final outbound = json['outbound'];
     if (outbound is! Map) return null;
-    return fromOutbound(
-      Map<String, dynamic>.from(outbound),
-      extras: [
-        for (final e in (json['extras'] as List? ?? const []))
-          if (e is Map) Map<String, dynamic>.from(e),
-      ],
-    );
+    final extras = [
+      for (final e in (json['extras'] as List? ?? const []))
+        if (e is Map) Map<String, dynamic>.from(e),
+    ];
+
+    // Исходящий Xray устроен иначе, и адрес узла из него не вынуть тем же
+    // способом: у него address лежит внутри settings. Берём сохранённые
+    // поля — они для того и сохранены.
+    if (json['via_xray'] == true) {
+      final protocol = json['protocol'];
+      final host = json['host'];
+      final port = json['port'];
+      if (protocol is! String || host is! String || port is! num) return null;
+      return Server(
+        name: '${json['name'] ?? host}',
+        protocol: protocol,
+        host: host,
+        port: port.toInt(),
+        outbound: Map<String, dynamic>.from(outbound),
+        extras: extras,
+        viaXray: true,
+      );
+    }
+
+    return fromOutbound(Map<String, dynamic>.from(outbound), extras: extras);
   }
 
   /// Служебные исходящие sing-box: они есть почти в каждом конфиге и узлами

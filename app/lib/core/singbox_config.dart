@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:path_provider/path_provider.dart';
 
@@ -74,7 +75,9 @@ Map<String, dynamic>? bypassAppsRule(Set<String> bypassApps, TargetOs os) {
 ///
 /// [cachePath] нужен только вместе с [bypassGames]: без кэша список доменов
 /// скачивается заново при каждом подключении. [os] подставляется в тестах —
-/// в приложении берётся настоящая система пользователя.
+/// в приложении берётся настоящая система пользователя. [bridgePort] нужен
+/// только узлам на Xray: на нём Xray отдаёт socks, через который ходит
+/// sing-box.
 String buildRunConfig(
   Server server, {
   bool bypassGames = false,
@@ -84,6 +87,7 @@ String buildRunConfig(
   int localPort = defaultLocalPort,
   String dnsServer = defaultDnsServer,
   bool dnsThroughTunnel = false,
+  int bridgePort = defaultBridgePort,
 }) {
   final appsRule = bypassAppsRule(bypassApps, os ?? currentOs());
   // Порядок правил — порядок проверки: приложение опознаётся точнее, чем
@@ -93,15 +97,26 @@ String buildRunConfig(
     if (bypassGames) {'rule_set': gamesRuleSet, 'outbound': 'direct'},
   ];
 
-  final proxyNode = {
-    ...server.outbound,
-    'tag': 'proxy',
-    // Имя самого узла разрешается напрямую: спрашивать его через туннель,
-    // который поднимается ради этого ответа, некому.
-    if (dnsThroughTunnel) 'domain_resolver': 'bootstrap',
-  };
+  // Узел на Xray sing-box не понимает: вместо него в конфиг встаёт socks
+  // до локального моста, который поднимет Xray. Роутинг, DNS и счётчики
+  // при этом остаются здесь и работают как для любого другого узла.
+  final proxyNode = server.viaXray
+      ? {
+          'type': 'socks',
+          'tag': 'proxy',
+          'server': '127.0.0.1',
+          'server_port': bridgePort,
+          'version': '5',
+        }
+      : {
+          ...server.outbound,
+          'tag': 'proxy',
+          // Имя самого узла разрешается напрямую: спрашивать его через
+          // туннель, который поднимается ради этого ответа, некому.
+          if (dnsThroughTunnel) 'domain_resolver': 'bootstrap',
+        };
 
-  return jsonEncode({
+  final singbox = {
     'log': {'level': 'warn'},
     'dns': dnsConfig(server: dnsServer, throughTunnel: dnsThroughTunnel),
     'inbounds': [
@@ -150,7 +165,53 @@ String buildRunConfig(
       'experimental': {
         'cache_file': {'enabled': true, 'path': cachePath},
       },
+  };
+
+  // Обычный узел уезжает конфигом sing-box без конверта — так же, как до
+  // появления второго движка.
+  if (!server.viaXray) return jsonEncode(singbox);
+
+  return jsonEncode({
+    'engine': 'chain',
+    'xray': _xrayBridge(server, bridgePort),
+    'config': singbox,
   });
+}
+
+/// Локальный порт, на котором Xray отдаёт socks для sing-box. Настройкой не
+/// стал намеренно: моста не видно снаружи, и выбирать его пользователю
+/// незачем — приложение подбирает свободный само.
+const defaultBridgePort = 2081;
+
+/// Свободный порт под мост. Спрашиваем его у системы, а не берём константу:
+/// занятый мост уронил бы подключение, а объяснить это пользователю нечем —
+/// порта, который он не выбирал, он и не видит.
+Future<int> freeBridgePort() async {
+  final socket = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+  final port = socket.port;
+  await socket.close();
+  return port;
+}
+
+/// Конфиг Xray: узел и socks для sing-box над ним. Больше здесь ничего и
+/// не нужно — роутинг, DNS и счётчики остаются наверху.
+Map<String, dynamic> _xrayBridge(Server server, int bridgePort) {
+  return {
+    'log': {'loglevel': 'warning'},
+    'inbounds': [
+      {
+        'tag': 'bridge',
+        'listen': '127.0.0.1',
+        'port': bridgePort,
+        'protocol': 'socks',
+        // UDP нужен: без него через мост не пройдут ни DNS, ни QUIC.
+        'settings': {'udp': true},
+      },
+    ],
+    'outbounds': [
+      {...server.outbound, 'tag': 'proxy'},
+    ],
+  };
 }
 
 /// Конфиг для замера задержки: просто все узлы, каждый со своим тегом.
@@ -172,16 +233,21 @@ String buildTestConfig(
     'dns': dnsConfig(server: dnsServer),
     // Тегом служит ключ узла: по нему же приходит ответ с задержками.
     // WireGuard уезжает в endpoints — ядро меряет и их тоже.
+    //
+    // Узлы на Xray сюда не попадают: этот конфиг поднимает sing-box, а он
+    // их исходящих не понимает. Мерить их нечем, пока замер не научится
+    // поднимать цепочку.
     'outbounds': [
-      for (final s in servers) ...[
-        if (!s.isEndpoint) {...s.outbound, 'tag': s.id},
-        ...s.extras,
-      ],
+      for (final s in servers)
+        if (!s.viaXray) ...[
+          if (!s.isEndpoint) {...s.outbound, 'tag': s.id},
+          ...s.extras,
+        ],
     ],
-    if (servers.any((s) => s.isEndpoint))
+    if (servers.any((s) => s.isEndpoint && !s.viaXray))
       'endpoints': [
         for (final s in servers)
-          if (s.isEndpoint) {...s.outbound, 'tag': s.id},
+          if (s.isEndpoint && !s.viaXray) {...s.outbound, 'tag': s.id},
       ],
   });
 }

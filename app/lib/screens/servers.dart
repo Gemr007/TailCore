@@ -488,7 +488,12 @@ class _ServerLine extends StatelessWidget {
             alignment: Alignment.centerLeft,
             child: ProtocolBadge(protocol: server.badge),
           ),
-          ping: _Latency(ms: ms, reason: reason, idle: false),
+          ping: _Latency(
+            ms: ms,
+            reason: reason,
+            idle: false,
+            unmeasurable: server.viaXray,
+          ),
         ),
       ),
     );
@@ -548,6 +553,7 @@ class _ServerCard extends StatelessWidget {
               ms: store.latencyOf(server),
               reason: store.failureOf(server),
               idle: false,
+              unmeasurable: server.viaXray,
             ),
           ],
         ),
@@ -582,13 +588,22 @@ Future<void> _confirmRemove(
   if (yes ?? false) store.remove(server);
 }
 
-/// Задержка узла. Три разных состояния, и путать их нельзя: не мерили,
+/// Задержка узла. Состояния путать нельзя: не мерили, не меряется вовсе,
 /// мерили и не ответил, ответил за столько-то.
 class _Latency extends StatelessWidget {
-  const _Latency({required this.ms, required this.idle, this.reason});
+  const _Latency({
+    required this.ms,
+    required this.idle,
+    this.reason,
+    this.unmeasurable = false,
+  });
 
   final int? ms;
   final bool idle;
+
+  /// Замерить нельзя в принципе, а не «не ответил»: узлы на Xray поднимает
+  /// второй движок, а замер умеет только sing-box.
+  final bool unmeasurable;
 
   /// Причина отказа с последнего замера, если он был неудачным.
   final String? reason;
@@ -597,6 +612,7 @@ class _Latency extends StatelessWidget {
   Widget build(BuildContext context) {
     final (text, color) = switch (ms) {
       final int v => ('$v ms', _color(v)),
+      _ when unmeasurable => ('xray', C.textMuted),
       _ when reason != null => ('нет связи', C.bad),
       _ when idle => ('нажмите', C.textMuted),
       _ => ('—', C.textFaint),
@@ -611,7 +627,10 @@ class _Latency extends StatelessWidget {
     );
     // Причина прячется в подсказку, а не занимает строку: в списке важна
     // задержка, но починить «нет связи» без причины невозможно.
-    return reason == null ? label : Tooltip(message: reason!, child: label);
+    final hint = unmeasurable
+        ? 'Узел работает через Xray — задержка пока не меряется'
+        : reason;
+    return hint == null ? label : Tooltip(message: hint, child: label);
   }
 
   /// Пороги из макета: до 25 мс мгновенно, до 60 приемлемо, дальше плохо.

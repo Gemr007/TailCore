@@ -132,6 +132,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
         await TunnelCore.instance.start(
           buildRunConfig(
             server!,
+            // Мост нужен только узлам на Xray — остальным лишний вопрос к
+            // системе о свободном порте ни к чему.
+            bridgePort: server.viaXray
+                ? await freeBridgePort()
+                : defaultBridgePort,
             bypassGames: bypassGames,
             bypassApps: widget.prefs.bypassApps,
             localPort: widget.prefs.localPort,

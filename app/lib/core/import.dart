@@ -209,11 +209,27 @@ Server? parseWireguardConf(String text) {
       : uri.host;
 
   // Транспорт проверяем до сборки outbound: узел с транспортом, которого
-  // ядро не знает, нельзя ни собрать, ни тихо упростить до TCP.
-  final unsupported = _unsupportedTransport(uri.queryParameters['type']);
-  if (unsupported != null &&
+  // sing-box не знает, уходит на Xray целиком — тихо упростить его до TCP
+  // значит отдать соединение, которое выглядит настроенным и не работает.
+  final needsXray = _unsupportedTransport(uri.queryParameters['type']);
+  if (needsXray != null &&
       (scheme == 'vless' || scheme == 'vmess' || scheme == 'trojan')) {
-    return (server: null, unsupported: unsupported, name: name);
+    final outbound = xrayOutbound(uri, scheme);
+    if (outbound == null) {
+      return (server: null, unsupported: needsXray, name: name);
+    }
+    return (
+      server: Server(
+        name: name,
+        protocol: scheme,
+        host: uri.host,
+        port: uri.port,
+        outbound: {...outbound, 'tag': name},
+        viaXray: true,
+      ),
+      unsupported: null,
+      name: name,
+    );
   }
 
   // NaiveProxy распознаётся, но не собирается: ядру для него нужен Cronet
@@ -340,8 +356,114 @@ List<Map<String, dynamic>> _shadowtlsUnder(
   ];
 }
 
-/// Транспорты Xray, которых нет в sing-box. Причина пишется человеческим
-/// языком: пользователю нужно понять, что делать, а не что сломалось.
+/// Собирает исходящий в формате Xray — другом, чем у sing-box: протокол
+/// отдельно, адрес внутри settings, транспорт в streamSettings.
+///
+/// Нужен только для транспортов, которых в sing-box нет. Всё остальное
+/// по-прежнему поднимает sing-box: у него роутинг, DNS и счётчики.
+Map<String, dynamic>? xrayOutbound(Uri uri, String protocol) {
+  final q = uri.queryParameters;
+  final id = Uri.decodeComponent(uri.userInfo);
+  if (id.isEmpty || uri.host.isEmpty) return null;
+
+  // Транспорт, которого не знает и Xray, собирать нельзя: конфиг с
+  // выдуманным network ядро отвергнет при подключении, а пользователь
+  // увидит узел в списке и не поймёт, почему тот не работает.
+  if (!_xrayNetworks.contains(_xrayNetwork(q['type']))) return null;
+
+  final settings = switch (protocol) {
+    'vless' => {
+      'vnext': [
+        {
+          'address': uri.host,
+          'port': uri.port,
+          'users': [
+            {
+              'id': id,
+              'encryption': q['encryption'] ?? 'none',
+              if (q['flow']?.isNotEmpty ?? false) 'flow': q['flow'],
+            },
+          ],
+        },
+      ],
+    },
+    'trojan' => {
+      'servers': [
+        {'address': uri.host, 'port': uri.port, 'password': id},
+      ],
+    },
+    _ => null,
+  };
+  if (settings == null) return null;
+
+  return {
+    'protocol': protocol,
+    'settings': settings,
+    'streamSettings': _xrayStream(uri),
+  };
+}
+
+/// Транспорты, ради которых Xray и подключён. Всё остальное умеет sing-box,
+/// и гонять его через второй движок незачем.
+const _xrayNetworks = {'xhttp', 'kcp', 'quic'};
+
+/// Имя транспорта в терминах Xray: у одного и того же есть по два названия.
+String _xrayNetwork(String? type) => switch (type) {
+  'splithttp' => 'xhttp',
+  'mkcp' => 'kcp',
+  final String t => t,
+  _ => 'tcp',
+};
+
+/// streamSettings: транспорт и шифрование в терминах Xray.
+Map<String, dynamic> _xrayStream(Uri uri) {
+  final q = uri.queryParameters;
+  final network = _xrayNetwork(q['type']);
+  final security = q['security'] ?? 'none';
+  final sni = q['sni'] ?? q['peer'] ?? uri.host;
+
+  return {
+    'network': network,
+    'security': security,
+    if (security == 'tls')
+      'tlsSettings': {
+        'serverName': sni,
+        if (q['fp']?.isNotEmpty ?? false) 'fingerprint': q['fp'],
+        if (q['alpn']?.isNotEmpty ?? false) 'alpn': q['alpn']!.split(','),
+        if (q['allowInsecure'] == '1' || q['insecure'] == '1')
+          'allowInsecure': true,
+      },
+    if (security == 'reality')
+      'realitySettings': {
+        'serverName': sni,
+        if (q['pbk']?.isNotEmpty ?? false) 'publicKey': q['pbk'],
+        if (q['sid']?.isNotEmpty ?? false) 'shortId': q['sid'],
+        if (q['fp']?.isNotEmpty ?? false) 'fingerprint': q['fp'],
+        if (q['spx']?.isNotEmpty ?? false) 'spiderX': q['spx'],
+      },
+    if (network == 'xhttp')
+      'xhttpSettings': {
+        if (q['path']?.isNotEmpty ?? false) 'path': q['path'],
+        if (q['host']?.isNotEmpty ?? false) 'host': q['host'],
+        // auto — сам Xray выберет между потоковым и пакетным режимом.
+        'mode': q['mode']?.isNotEmpty ?? false ? q['mode'] : 'auto',
+      },
+    if (network == 'kcp')
+      'kcpSettings': {
+        'header': {'type': q['headerType'] ?? 'none'},
+        if (q['seed']?.isNotEmpty ?? false) 'seed': q['seed'],
+      },
+    if (network == 'quic')
+      'quicSettings': {
+        'security': q['quicSecurity'] ?? 'none',
+        if (q['key']?.isNotEmpty ?? false) 'key': q['key'],
+        'header': {'type': q['headerType'] ?? 'none'},
+      },
+  };
+}
+
+/// Транспорты, которых нет в sing-box. Не null — узел надо поднимать Xray.
+/// Текст остаётся причиной отказа для случая, когда и Xray его не соберёт.
 String? _unsupportedTransport(String? type) {
   return switch (type) {
     null ||
@@ -353,9 +475,9 @@ String? _unsupportedTransport(String? type) {
     'http' ||
     'h2' ||
     'httpupgrade' => null,
-    'xhttp' || 'splithttp' => 'транспорт XHTTP — нужен Xray-core',
-    'kcp' || 'mkcp' => 'транспорт mKCP — нужен Xray-core',
-    'quic' => 'транспорт QUIC от Xray — нужен Xray-core',
+    'xhttp' || 'splithttp' => 'транспорт XHTTP — узел не собрался для Xray',
+    'kcp' || 'mkcp' => 'транспорт mKCP — узел не собрался для Xray',
+    'quic' => 'транспорт QUIC от Xray — узел не собрался для Xray',
     _ => 'неизвестный транспорт $type',
   };
 }

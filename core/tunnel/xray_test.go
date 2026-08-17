@@ -102,6 +102,104 @@ func TestXrayEngineStartsCountsAndStops(t *testing.T) {
 	}
 }
 
+// Цепочка: Xray держит узел и отдаёт локальный socks, sing-box ходит через
+// него. Проверяется весь путь целиком — запрос через входящий sing-box
+// должен дойти до сайта и попасть в счётчики sing-box, а не Xray.
+func TestChainEngineRoutesThroughBothCores(t *testing.T) {
+	target := httpTestServer(t)
+	bridgePort := freePort(t)
+	entryPort := freePort(t)
+
+	config := `{
+	  "engine": "chain",
+	  "xray": {
+	    "log": {"loglevel": "error"},
+	    "inbounds": [{
+	      "tag": "bridge", "listen": "127.0.0.1", "port": ` + strconv.Itoa(bridgePort) + `,
+	      "protocol": "socks", "settings": {"udp": true}
+	    }],
+	    "outbounds": [{"tag": "proxy", "protocol": "freedom"}]
+	  },
+	  "config": {
+	    "log": {"level": "error"},
+	    "inbounds": [{
+	      "type": "mixed", "tag": "local",
+	      "listen": "127.0.0.1", "listen_port": ` + strconv.Itoa(entryPort) + `
+	    }],
+	    "outbounds": [
+	      {"type": "socks", "tag": "proxy", "server": "127.0.0.1", "server_port": ` +
+		strconv.Itoa(bridgePort) + `, "version": "5"},
+	      {"type": "direct", "tag": "direct"}
+	    ],
+	    "route": {"final": "proxy"}
+	  }
+	}`
+
+	if err := Start(config); err != nil {
+		t.Fatalf("start chain: %v", err)
+	}
+	defer Stop()
+
+	if got := decode(t).State; got != StateRunning {
+		t.Fatalf("state after start = %q, want %q", got, StateRunning)
+	}
+
+	if err := fetchThroughSocks(entryPort, target); err != nil {
+		t.Fatalf("request through the chain: %v", err)
+	}
+
+	s := decode(t)
+	if s.Uplink == 0 || s.Downlink == 0 {
+		t.Errorf("counters stayed at zero: up=%d down=%d", s.Uplink, s.Downlink)
+	}
+}
+
+// Верхний движок не поднялся — нижний обязан погаснуть следом: иначе Xray
+// остался бы висеть на порту, а туннель считался бы остановленным.
+func TestChainEngineDoesNotLeaveXrayRunning(t *testing.T) {
+	bridgePort := freePort(t)
+	busy, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer busy.Close()
+	takenPort := busy.Addr().(*net.TCPAddr).Port
+
+	config := `{
+	  "engine": "chain",
+	  "xray": {
+	    "log": {"loglevel": "error"},
+	    "inbounds": [{
+	      "tag": "bridge", "listen": "127.0.0.1", "port": ` + strconv.Itoa(bridgePort) + `,
+	      "protocol": "socks", "settings": {}
+	    }],
+	    "outbounds": [{"tag": "proxy", "protocol": "freedom"}]
+	  },
+	  "config": {
+	    "inbounds": [{
+	      "type": "mixed", "tag": "local",
+	      "listen": "127.0.0.1", "listen_port": ` + strconv.Itoa(takenPort) + `
+	    }],
+	    "outbounds": [{"type": "direct", "tag": "direct"}]
+	  }
+	}`
+
+	if err := Start(config); err == nil {
+		Stop()
+		t.Fatal("start must fail: the sing-box inbound port is taken")
+	}
+	if got := decode(t).State; got != StateStopped {
+		t.Fatalf("state after failed start = %q, want %q", got, StateStopped)
+	}
+
+	// Порт моста снова свободен только если Xray закрылся.
+	listener, err := net.Listen("tcp", "127.0.0.1:"+strconv.Itoa(bridgePort))
+	if err != nil {
+		t.Fatalf("xray is still holding the bridge port: %v", err)
+	}
+	listener.Close()
+}
+
 func TestXrayRejectsBrokenConfig(t *testing.T) {
 	err := Start(`{"engine": "xray", "config": {"outbounds": [{"protocol": "no-such-protocol"}]}}`)
 	if err == nil {
