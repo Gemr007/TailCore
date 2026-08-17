@@ -67,9 +67,33 @@
 |-----|-----|
 | 9 | Роутинг по процессам: БД шаблонов приложений, резолв идентификаторов по реальной ОС |
 | 10 | Экран настроек: kill switch, TUN, автозапуск, DNS (без Subscription/Devices) |
-| 11 | Android VpnService |
-| 12 | Desktop TUN (Windows/Linux/macOS) |
-| 13 | Полировка состояний: ошибки, «Подключение...», пустые списки |
+| 11 | WireGuard: тег `with_wireguard`, разбор ссылки, формат endpoint |
+| 12 | Протоколы, которые ядро уже умеет, а импорт нет: SSH, ShadowTLS, AnyTLS, Tor, NaiveProxy (тег `with_naive_outbound`) |
+| 13 | Xray-core вторым движком: сборка в ту же библиотеку, выбор движка по узлу, свой статус и счётчики |
+| 14 | XHTTP и остальные транспорты Xray (mKCP, QUIC от Xray) поверх шага 13 — импорт перестаёт их отвергать |
+| 15 | AmneziaWG: в апстримном sing-box его нет, нужен форк ядра |
+| 16 | Mieru, Juicity, TrustTunnel, olcRTC и прочее: разведка по каждому — своя библиотека, форк или отказ с объяснением |
+| 17 | Android VpnService |
+| 18 | Desktop TUN (Windows/Linux/macOS) |
+| 19 | Полировка состояний: ошибки, «Подключение...», пустые списки |
+
+Протоколы идут перед системным туннелем по решению заказчика. Цена
+известна: до шага 17 трафик ходит через локальный прокси, а не через
+TUN/VpnService, — новые протоколы проверяются в этом режиме, и на системном
+туннеле их придётся проверять повторно.
+
+### Что уже собрано в ядре, а что нет
+
+Теги сборки живут в `scripts/build-tags.txt`, сейчас там `with_utls,with_quic`.
+
+- **Работают:** SOCKS, HTTP(S), Shadowsocks, VMess, VLESS (в том числе
+  Reality/XTLS), Trojan, Hysteria, Hysteria2, TUIC. Импорт ссылок есть.
+- **Собраны, но импорта ссылок нет:** SSH, ShadowTLS, AnyTLS, Tor — зайдут
+  только конфигом sing-box (шаг 12).
+- **Не собраны:** WireGuard (нужен `with_wireguard`), NaiveProxy (нужен
+  `with_naive_outbound`).
+- **Нет в sing-box вообще:** XHTTP, mKCP и QUIC от Xray (нужен Xray-core),
+  AmneziaWG (нужен форк), Mieru, Juicity, TrustTunnel, olcRTC.
 
 ## Окружение
 

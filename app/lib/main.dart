@@ -176,7 +176,7 @@ class _Sidebar extends StatelessWidget {
               ),
               child: Column(
                 children: [
-                  // TODO(шаг 12): TUN появится здесь, когда его будет что
+                  // TODO(шаг 18): TUN появится здесь, когда его будет что
                   // показывать.
                   _CoreFact(label: 'ЯДРО', value: 'sing-box 1.13.18'),
                 ],

@@ -319,7 +319,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             child: _ErrorLine(text: _errorLine!),
           ),
         // Таблица серверов и лог-полоса из макета приезжают отдельными
-        // шагами: серверы — шаг 7, лог — шаг 13.
+        // шагами: серверы — шаг 7, лог — шаг 19.
         const Spacer(),
       ],
     );
