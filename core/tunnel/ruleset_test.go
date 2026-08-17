@@ -70,6 +70,40 @@ func TestProcessRuleIsUnderstood(t *testing.T) {
 	}
 }
 
+// DNS через туннель держится на двух полях: detour у резолвера и
+// domain_resolver у исходящего. Забыть второе — получить ядро, которое
+// пытается разрешить адрес узла через туннель, поднимаемый ради этого узла.
+func TestDNSThroughTunnelIsUnderstood(t *testing.T) {
+	const config = `{
+	  "dns": {
+	    "servers": [
+	      {"type": "https", "tag": "doh", "server": "1.1.1.1", "detour": "proxy"},
+	      {"type": "https", "tag": "bootstrap", "server": "1.1.1.1"}
+	    ],
+	    "final": "doh",
+	    "strategy": "prefer_ipv4"
+	  },
+	  "outbounds": [
+	    {"type": "direct", "tag": "proxy", "domain_resolver": "bootstrap"},
+	    {"type": "direct", "tag": "direct", "domain_resolver": "bootstrap"}
+	  ],
+	  "route": {"final": "proxy"}
+	}`
+
+	ctx := include.Context(context.Background())
+	options, err := sjson.UnmarshalExtendedContext[option.Options](ctx, []byte(config))
+	if err != nil {
+		t.Fatalf("config with tunnelled dns does not parse: %v", err)
+	}
+
+	if len(options.DNS.Servers) != 2 {
+		t.Fatalf("dns servers parsed = %d, want 2", len(options.DNS.Servers))
+	}
+	if options.DNS.Final != "doh" {
+		t.Errorf("dns final = %q, want doh", options.DNS.Final)
+	}
+}
+
 func TestRuleSetConfigIsUnderstood(t *testing.T) {
 	ctx := include.Context(context.Background())
 	options, err := sjson.UnmarshalExtendedContext[option.Options](ctx, []byte(rulesetConfig))

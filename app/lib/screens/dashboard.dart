@@ -134,6 +134,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
             server!,
             bypassGames: bypassGames,
             bypassApps: widget.prefs.bypassApps,
+            localPort: widget.prefs.localPort,
+            dnsServer: widget.prefs.dnsServer,
+            dnsThroughTunnel: widget.prefs.dnsThroughTunnel,
             // Путь к кэшу спрашиваем только когда он нужен: без rule-set'ов
             // кэшировать нечего, а лишний поход в плагин — лишний отказ.
             cachePath: bypassGames ? await singboxCachePath() : null,

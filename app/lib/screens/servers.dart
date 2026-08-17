@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../core/prefs.dart';
 import '../core/server.dart';
 import '../core/servers_store.dart';
 import '../theme.dart';
@@ -15,9 +16,14 @@ import '../widgets/panel.dart';
 /// Список разворачивается в таблицу на широком окне и сворачивается в
 /// карточки на узком — порог тот же, что у навигации.
 class ServersScreen extends StatefulWidget {
-  const ServersScreen({super.key, required this.store});
+  const ServersScreen({super.key, required this.store, required this.prefs});
 
   final ServersStore store;
+
+  /// Нужны ради замера: он ходит по сети и обязан спрашивать имена у того
+  /// же резолвера, что и туннель, — иначе «недоступен» на этом экране и
+  /// работающее соединение на соседнем.
+  final Prefs prefs;
 
   @override
   State<ServersScreen> createState() => _ServersScreenState();
@@ -46,7 +52,13 @@ class _ServersScreenState extends State<ServersScreen> {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            _Header(store: _store, onImport: _showImport, pad: pad),
+            _Header(
+              store: _store,
+              onImport: _showImport,
+              onMeasure: () =>
+                  _store.measureAll(dnsServer: widget.prefs.dnsServer),
+              pad: pad,
+            ),
             if (_store.servers.isNotEmpty) ...[
               Padding(
                 padding: EdgeInsets.fromLTRB(pad, 0, pad, 12),
@@ -126,11 +138,13 @@ class _Header extends StatelessWidget {
   const _Header({
     required this.store,
     required this.onImport,
+    required this.onMeasure,
     required this.pad,
   });
 
   final ServersStore store;
   final VoidCallback onImport;
+  final VoidCallback onMeasure;
   final double pad;
 
   @override
@@ -154,7 +168,7 @@ class _Header extends StatelessWidget {
           if (count > 0)
             _TextAction(
               label: store.testing ? 'ЗАМЕР...' : 'ЗАМЕРИТЬ',
-              onTap: store.testing ? null : store.measureAll,
+              onTap: store.testing ? null : onMeasure,
             ),
           const SizedBox(width: 7),
           _TextAction(label: 'ИМПОРТ', onTap: onImport),

@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tailcore/core/apps.dart';
+import 'package:tailcore/core/autostart.dart';
 import 'package:tailcore/core/prefs.dart';
 import 'package:tailcore/core/server.dart';
 import 'package:tailcore/core/singbox_config.dart';
@@ -117,6 +118,38 @@ void main() {
     expect((rules.last as Map)['rule_set'], gamesRuleSet);
   });
 
+  test('порт и резолвер берутся из настроек', () {
+    final config = jsonDecode(
+      buildRunConfig(_node(), localPort: 3128, dnsServer: '9.9.9.9'),
+    ) as Map<String, dynamic>;
+
+    expect((config['inbounds'] as List).single['listen_port'], 3128);
+    final servers = (config['dns'] as Map<String, dynamic>)['servers'] as List;
+    expect(servers.single['server'], '9.9.9.9');
+    // Туннеля резолвер не касается, пока не попросили.
+    expect(servers.single.containsKey('detour'), isFalse);
+  });
+
+  test('DNS через туннель не отрезает разрешение адреса самого узла', () {
+    final config = jsonDecode(
+      buildRunConfig(_node(), dnsThroughTunnel: true),
+    ) as Map<String, dynamic>;
+
+    final dns = config['dns'] as Map<String, dynamic>;
+    final servers = dns['servers'] as List;
+    expect(servers.first['tag'], 'doh');
+    expect(servers.first['detour'], 'proxy');
+    // Второй резолвер прямой: спрашивать адрес узла через туннель, который
+    // ради этого ответа и поднимается, невозможно.
+    expect(servers.last['tag'], 'bootstrap');
+    expect(servers.last.containsKey('detour'), isFalse);
+    expect(dns['final'], 'doh');
+
+    final outbounds = config['outbounds'] as List;
+    expect(outbounds.first['domain_resolver'], 'bootstrap');
+    expect(outbounds.last['domain_resolver'], 'bootstrap');
+  });
+
   test('настройка переживает перезапуск', () async {
     final dir = Directory.systemTemp.createTempSync('tailcore-prefs');
     addTearDown(() => dir.deleteSync(recursive: true));
@@ -126,11 +159,59 @@ void main() {
     expect(first.bypassGames, isFalse);
     first.setBypassGames(true);
     first.setBypassApp('discord', true);
+    first.setLocalPort(3128);
+    first.setDnsServer('9.9.9.9');
+    first.setDnsThroughTunnel(true);
     await first.save();
 
     final second = Prefs(storage: file);
     await second.load();
     expect(second.bypassGames, isTrue);
     expect(second.bypassApps, {'discord'});
+    expect(second.localPort, 3128);
+    expect(second.dnsServer, '9.9.9.9');
+    expect(second.dnsThroughTunnel, isTrue);
+  });
+
+  test('негодный порт настройку не меняет', () {
+    final prefs = Prefs(
+      storage: File('${Directory.systemTemp.path}/nope.json'),
+    );
+    expect(prefs.localPort, defaultLocalPort);
+
+    // Ниже 1024 нужны права администратора, выше 65535 порта не бывает.
+    prefs.setLocalPort(80);
+    prefs.setLocalPort(70000);
+    expect(prefs.localPort, defaultLocalPort);
+  });
+
+  test('автозапуск описывается по-разному на каждой ОС', () {
+    // Проверяется то, что уходит в систему: реестр трогать из теста
+    // нельзя, а ошибиться в ключе или в формате файла — можно.
+    expect(Autostart.windowsArgs(true, 'C:\\app\\tailcore.exe'), [
+      'add',
+      r'HKCU\Software\Microsoft\Windows\CurrentVersion\Run',
+      '/v',
+      'TailCore',
+      '/t',
+      'REG_SZ',
+      '/d',
+      'C:\\app\\tailcore.exe',
+      '/f',
+    ]);
+    expect(Autostart.windowsArgs(false, 'ignored'), contains('delete'));
+
+    expect(
+      Autostart.desktopEntry('/usr/bin/tailcore'),
+      contains('[Desktop Entry]'),
+    );
+    expect(
+      Autostart.desktopEntry('/usr/bin/tailcore'),
+      contains('Exec=/usr/bin/tailcore'),
+    );
+
+    final plist = Autostart.launchAgent('/Applications/TailCore.app/tailcore');
+    expect(plist, contains('<key>RunAtLoad</key><true/>'));
+    expect(plist, contains('/Applications/TailCore.app/tailcore'));
   });
 }

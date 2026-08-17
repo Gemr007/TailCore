@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'import.dart';
+import 'prefs.dart';
 import 'server.dart';
 import 'singbox_config.dart';
 import 'tunnel.dart';
@@ -176,12 +177,14 @@ class ServersStore extends ChangeNotifier {
 
   /// Меряет задержку до всех узлов разом: ядро само ходит по ссылке через
   /// каждый outbound.
-  Future<void> measureAll() async {
+  Future<void> measureAll({String dnsServer = defaultDnsServer}) async {
     if (_testing || _servers.isEmpty) return;
     _testing = true;
     notifyListeners();
     try {
-      final result = await TunnelCore.instance.test(buildTestConfig(_servers));
+      final result = await TunnelCore.instance.test(
+        buildTestConfig(_servers, dnsServer: dnsServer),
+      );
       _latency
         ..clear()
         ..addAll(result.delays);

@@ -3,31 +3,41 @@ import 'dart:convert';
 import 'package:path_provider/path_provider.dart';
 
 import 'apps.dart';
+import 'prefs.dart';
 import 'server.dart';
-
-/// Локальный порт прокси. Пока константа; настройкой станет на экране
-/// настроек, системным туннелем — на шаге TUN.
-const localProxyPort = 2080;
 
 /// Разрешение имён. Блок обязателен, а не «по умолчанию сойдёт».
 ///
-/// TODO(шаг 10): выбор резолвера — настройка. Сейчас запросы идут мимо
-/// туннеля; когда появится экран настроек, DNS должен ходить через него.
-const _dns = {
-  'servers': [
-    // DNS поверх HTTPS, а не системный резолвер: sing-box в режиме local
-    // шлёт собственные UDP-запросы на системный сервер, а в сетях, где тот
-    // отвечает только штатному стеку ОС, они уходят в таймаут — и клиент
-    // показывает все узлы недоступными, ничего не объясняя.
-    //
-    // Адрес задан числом намеренно: резолвер, которому самому нужен
-    // резолвер, на старте не поднимется.
-    {'type': 'https', 'tag': 'doh', 'server': '1.1.1.1'},
-  ],
-  // prefer_ipv4 здесь не вкусовщина: AAAA-запросы в таких сетях чаще всего
-  // повисают до таймаута и съедают всё время подключения.
-  'strategy': 'prefer_ipv4',
-};
+/// DNS поверх HTTPS, а не системный резолвер: sing-box в режиме local шлёт
+/// собственные UDP-запросы на системный сервер, а в сетях, где тот отвечает
+/// только штатному стеку ОС, они уходят в таймаут — и клиент показывает все
+/// узлы недоступными, ничего не объясняя.
+///
+/// [throughTunnel] уводит запросы в туннель — иначе провайдер видит, какие
+/// имена спрашивает человек, даже когда сам трафик зашифрован. Резолвер при
+/// этом раздваивается: адрес самого узла спрашивать через туннель, который
+/// ещё не поднят, невозможно, поэтому для него остаётся прямой `bootstrap`.
+Map<String, dynamic> dnsConfig({
+  required String server,
+  bool throughTunnel = false,
+}) {
+  return {
+    'servers': [
+      {
+        'type': 'https',
+        'tag': 'doh',
+        'server': server,
+        if (throughTunnel) 'detour': 'proxy',
+      },
+      if (throughTunnel)
+        {'type': 'https', 'tag': 'bootstrap', 'server': server},
+    ],
+    if (throughTunnel) 'final': 'doh',
+    // prefer_ipv4 здесь не вкусовщина: AAAA-запросы в таких сетях чаще
+    // всего повисают до таймаута и съедают всё время подключения.
+    'strategy': 'prefer_ipv4',
+  };
+}
 
 /// Rule-set с доменами игровых сервисов из sing-geosite.
 ///
@@ -71,6 +81,9 @@ String buildRunConfig(
   String? cachePath,
   Set<String> bypassApps = const {},
   TargetOs? os,
+  int localPort = defaultLocalPort,
+  String dnsServer = defaultDnsServer,
+  bool dnsThroughTunnel = false,
 }) {
   final appsRule = bypassAppsRule(bypassApps, os ?? currentOs());
   // Порядок правил — порядок проверки: приложение опознаётся точнее, чем
@@ -82,18 +95,30 @@ String buildRunConfig(
 
   return jsonEncode({
     'log': {'level': 'warn'},
-    'dns': _dns,
+    'dns': dnsConfig(server: dnsServer, throughTunnel: dnsThroughTunnel),
     'inbounds': [
       {
         'type': 'mixed',
         'tag': 'local',
         'listen': '127.0.0.1',
-        'listen_port': localProxyPort,
+        'listen_port': localPort,
       },
     ],
     'outbounds': [
-      {...server.outbound, 'tag': 'proxy'},
-      {'type': 'direct', 'tag': 'direct'},
+      {
+        ...server.outbound,
+        'tag': 'proxy',
+        // Имя самого узла разрешается напрямую: спрашивать его через
+        // туннель, который поднимается ради этого ответа, некому.
+        if (dnsThroughTunnel) 'domain_resolver': 'bootstrap',
+      },
+      {
+        'type': 'direct',
+        'tag': 'direct',
+        // То, что идёт мимо туннеля, и имена себе разрешает мимо него:
+        // крюк через туннель ради адреса игрового сервера бессмыслен.
+        if (dnsThroughTunnel) 'domain_resolver': 'bootstrap',
+      },
     ],
     'route': {
       if (rules.isNotEmpty) 'rules': rules,
@@ -128,10 +153,15 @@ String buildRunConfig(
 ///
 /// Входящих нет намеренно — замер поднимает второй экземпляр ядра, и
 /// занятый порт основного туннеля уронил бы его на старте.
-String buildTestConfig(List<Server> servers) {
+String buildTestConfig(
+  List<Server> servers, {
+  String dnsServer = defaultDnsServer,
+}) {
   return jsonEncode({
     'log': {'level': 'error'},
-    'dns': _dns,
+    // Через туннель здесь спрашивать нечего: туннеля нет, есть десяток
+    // узлов, каждый со своим тегом.
+    'dns': dnsConfig(server: dnsServer),
     // Тегом служит ключ узла: по нему же приходит ответ с задержками.
     'outbounds': [
       for (final s in servers) {...s.outbound, 'tag': s.id},

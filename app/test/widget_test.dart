@@ -52,7 +52,13 @@ Future<void> importInto(
 
 void main() {
   setUp(() => _dir = Directory.systemTemp.createTempSync('tailcore-widget'));
-  tearDown(() => _dir.deleteSync(recursive: true));
+  tearDown(() {
+    // Сохранение настроек может ещё дописывать файл, когда тест уже
+    // закончился: временный каталог — не повод ронять проверку.
+    try {
+      _dir.deleteSync(recursive: true);
+    } on FileSystemException catch (_) {}
+  });
 
   testWidgets('широкое окно получает боковую панель, узкое — нижнюю', (
     tester,
@@ -180,6 +186,49 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(prefs.bypassApps, {'discord'});
+  });
+
+  testWidgets('DNS и порт настраиваются, kill switch честно выключен', (
+    tester,
+  ) async {
+    await pumpAt(tester, const Size(420, 900));
+    await goTo(tester, Section.settings);
+
+    // Настройки длиннее экрана: до нужной строки надо доехать, как и
+    // пользователю.
+    Future<void> scrollTo(Finder target) async {
+      await tester.dragUntilVisible(
+        target,
+        find.byType(ListView),
+        const Offset(0, -120),
+      );
+      // dragUntilVisible останавливается, едва край строки показался, —
+      // по такой ещё нельзя попасть пальцем.
+      await tester.ensureVisible(target);
+      await tester.pumpAndSettle();
+    }
+
+    await scrollTo(find.byKey(const ValueKey('dns-9.9.9.9')));
+    await tester.runAsync(() async {
+      await tester.tap(find.byKey(const ValueKey('dns-9.9.9.9')));
+      await tester.pump();
+    });
+    await tester.pumpAndSettle();
+    expect(prefs.dnsServer, '9.9.9.9');
+
+    await scrollTo(find.byType(TextField));
+    await tester.runAsync(() async {
+      await tester.enterText(find.byType(TextField), '3128');
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pump();
+    });
+    await tester.pumpAndSettle();
+    expect(prefs.localPort, 3128);
+
+    // Тумблеры, которым нечем работать до системного туннеля, показаны
+    // выключенными и с причиной, а не рабочими.
+    await scrollTo(find.text('Kill switch'));
+    expect(find.textContaining('шаг 18'), findsOneWidget);
   });
 
   testWidgets('экран соединения рисуется независимо от доступности ядра', (

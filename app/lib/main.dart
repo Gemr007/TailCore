@@ -99,7 +99,10 @@ class _AppShellState extends State<AppShell> {
           store: widget.store,
           prefs: widget.prefs,
         ),
-        Section.servers => ServersScreen(store: widget.store),
+        Section.servers => ServersScreen(
+          store: widget.store,
+          prefs: widget.prefs,
+        ),
         Section.settings => SettingsScreen(prefs: widget.prefs),
       },
     );

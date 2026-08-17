@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:tailcore/core/prefs.dart';
 import 'package:tailcore/core/servers_store.dart';
 import 'package:tailcore/core/singbox_config.dart';
 
@@ -101,7 +102,7 @@ void main() {
       expect(outbounds.first['tag'], 'proxy');
       expect(outbounds.first['type'], 'vless');
       expect(config['route']['final'], 'proxy');
-      expect(config['inbounds'].single['listen_port'], localProxyPort);
+      expect(config['inbounds'].single['listen_port'], defaultLocalPort);
     });
 
     test('конфиг замера не открывает входящих', () async {

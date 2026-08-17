@@ -6,6 +6,21 @@ import 'package:path_provider/path_provider.dart';
 
 import 'servers_store.dart' show unawaited;
 
+const defaultLocalPort = 2080;
+
+/// Cloudflare: отвечает быстрее прочих в большинстве сетей, где эта штука
+/// вообще нужна.
+const defaultDnsServer = '1.1.1.1';
+
+/// Готовые резолверы. Свой адрес руками — отдельная задача: сперва надо,
+/// чтобы работали эти.
+const dnsPresets = {
+  '1.1.1.1': 'Cloudflare',
+  '8.8.8.8': 'Google',
+  '9.9.9.9': 'Quad9',
+  '94.140.14.14': 'AdGuard',
+};
+
 /// Настройки приложения.
 ///
 /// Отдельно от [ServersStore]: список узлов приходит из подписки и меняется
@@ -45,6 +60,46 @@ class Prefs extends ChangeNotifier {
     unawaited(save());
   }
 
+  int _localPort = defaultLocalPort;
+
+  /// Порт локального прокси. Настройка, а не константа: 2080 занят чаще,
+  /// чем кажется, и человеку нечем починить чужой процесс на своём порту.
+  int get localPort => _localPort;
+
+  String _dnsServer = defaultDnsServer;
+
+  /// Адрес DoH-резолвера. Числом, а не именем: резолверу, которому самому
+  /// нужен резолвер, неоткуда взяться на старте.
+  String get dnsServer => _dnsServer;
+
+  bool _dnsThroughTunnel = false;
+
+  /// Спрашивать DNS через туннель. Выключено по умолчанию — так работало
+  /// до появления настройки, и это единственный режим, проверенный на
+  /// живой подписке.
+  bool get dnsThroughTunnel => _dnsThroughTunnel;
+
+  void setLocalPort(int port) {
+    if (_localPort == port || port < 1024 || port > 65535) return;
+    _localPort = port;
+    notifyListeners();
+    unawaited(save());
+  }
+
+  void setDnsServer(String server) {
+    if (_dnsServer == server || server.isEmpty) return;
+    _dnsServer = server;
+    notifyListeners();
+    unawaited(save());
+  }
+
+  void setDnsThroughTunnel(bool value) {
+    if (_dnsThroughTunnel == value) return;
+    _dnsThroughTunnel = value;
+    notifyListeners();
+    unawaited(save());
+  }
+
   Future<File> _file() async {
     final existing = storage;
     if (existing != null) return existing;
@@ -67,6 +122,9 @@ class Prefs extends ChangeNotifier {
     if (json is! Map<String, dynamic>) return;
 
     _bypassGames = json['bypass_games'] as bool? ?? false;
+    _localPort = json['local_port'] as int? ?? defaultLocalPort;
+    _dnsServer = json['dns_server'] as String? ?? defaultDnsServer;
+    _dnsThroughTunnel = json['dns_through_tunnel'] as bool? ?? false;
     _bypassApps
       ..clear()
       ..addAll([
@@ -83,6 +141,9 @@ class Prefs extends ChangeNotifier {
       jsonEncode({
         'bypass_games': _bypassGames,
         'bypass_apps': _bypassApps.toList(),
+        'local_port': _localPort,
+        'dns_server': _dnsServer,
+        'dns_through_tunnel': _dnsThroughTunnel,
       }),
     );
   }
