@@ -11,6 +11,9 @@ import '../widgets/panel.dart';
 ///
 /// Группировки по странам нет намеренно: пользователь выбирает узел по
 /// скорости и протоколу, а не по географии.
+///
+/// Список разворачивается в таблицу на широком окне и сворачивается в
+/// карточки на узком — порог тот же, что у навигации.
 class ServersScreen extends StatefulWidget {
   const ServersScreen({super.key, required this.store});
 
@@ -27,6 +30,9 @@ class _ServersScreenState extends State<ServersScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final wide = MediaQuery.sizeOf(context).width >= 700;
+    final pad = wide ? 26.0 : 22.0;
+
     return ListenableBuilder(
       listenable: _store,
       builder: (context, _) {
@@ -40,15 +46,15 @@ class _ServersScreenState extends State<ServersScreen> {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            _Header(store: _store, onImport: _showImport),
+            _Header(store: _store, onImport: _showImport, pad: pad),
             if (_store.servers.isNotEmpty) ...[
               Padding(
-                padding: const EdgeInsets.fromLTRB(22, 0, 22, 12),
+                padding: EdgeInsets.fromLTRB(pad, 0, pad, 12),
                 child: _AutoCard(store: _store),
               ),
               if (filters.length > 2)
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(22, 0, 22, 12),
+                  padding: EdgeInsets.fromLTRB(pad, 0, pad, 12),
                   child: _FilterChips(
                     filters: filters,
                     current: filter,
@@ -61,11 +67,13 @@ class _ServersScreenState extends State<ServersScreen> {
                   ? _EmptyState(onImport: _showImport)
                   : rows.isEmpty
                   ? const _NoMatch()
+                  : wide
+                  ? _ServerTable(rows: rows, store: _store)
                   : ListView.separated(
-                      padding: const EdgeInsets.fromLTRB(22, 0, 22, 20),
+                      padding: EdgeInsets.fromLTRB(pad, 0, pad, 20),
                       itemCount: rows.length,
                       separatorBuilder: (_, _) => const SizedBox(height: 6),
-                      itemBuilder: (context, i) => _ServerRow(
+                      itemBuilder: (context, i) => _ServerCard(
                         server: rows[i],
                         store: _store,
                         onPick: () => _store.select(rows[i]),
@@ -115,16 +123,21 @@ class _ServersScreenState extends State<ServersScreen> {
 }
 
 class _Header extends StatelessWidget {
-  const _Header({required this.store, required this.onImport});
+  const _Header({
+    required this.store,
+    required this.onImport,
+    required this.pad,
+  });
 
   final ServersStore store;
   final VoidCallback onImport;
+  final double pad;
 
   @override
   Widget build(BuildContext context) {
     final count = store.servers.length;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(22, 20, 22, 12),
+      padding: EdgeInsets.fromLTRB(pad, 20, pad, 12),
       child: Row(
         children: [
           Text('Серверы', style: Theme.of(context).textTheme.headlineMedium),
@@ -308,8 +321,170 @@ class _FilterChips extends StatelessWidget {
   }
 }
 
-class _ServerRow extends StatelessWidget {
-  const _ServerRow({
+/// Колонки таблицы. Ширины лежат рядом, потому что их читают и шапка, и
+/// строки: разъехавшись, они превратят таблицу в кашу.
+abstract final class _Col {
+  static const dot = 26.0;
+  static const protocol = 110.0;
+
+  /// Ровно ширина [_Latency] — колонка выровнена по правому краю значения.
+  static const ping = 66.0;
+}
+
+/// Десктопная таблица из макета: строки в 44 px, разделители, выбранный
+/// узел помечен акцентной полосой слева.
+///
+/// Колонок из макета здесь меньше, чем нарисовано: REGION и LOAD рисовать
+/// нечем — ни подписка, ни sing-box не сообщают ни страну, ни загрузку
+/// узла, а выдуманное число в таблице выглядит ровно как измеренное.
+class _ServerTable extends StatelessWidget {
+  const _ServerTable({required this.rows, required this.store});
+
+  final List<Server> rows;
+  final ServersStore store;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Container(
+          padding: const EdgeInsets.fromLTRB(26, 0, 26, 8),
+          decoration: const BoxDecoration(
+            border: Border(bottom: BorderSide(color: C.divider)),
+          ),
+          child: _row(
+            node: Text(
+              'УЗЕЛ',
+              style: monoStyle(size: 9.5, caps: true, color: C.textFaint),
+            ),
+            protocol: Text(
+              'ПРОТОКОЛ',
+              style: monoStyle(size: 9.5, caps: true, color: C.textFaint),
+            ),
+            ping: Text(
+              'ЗАДЕРЖКА',
+              textAlign: TextAlign.right,
+              style: monoStyle(size: 9.5, caps: true, color: C.textFaint),
+            ),
+          ),
+        ),
+        Expanded(
+          child: ListView.builder(
+            padding: const EdgeInsets.only(bottom: 12),
+            itemCount: rows.length,
+            itemBuilder: (context, i) =>
+                _ServerLine(server: rows[i], store: store),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Одна раскладка на шапку и на строки.
+  static Widget _row({
+    Widget? dot,
+    required Widget node,
+    required Widget protocol,
+    required Widget ping,
+  }) {
+    return Row(
+      children: [
+        SizedBox(width: _Col.dot, child: dot),
+        Expanded(child: node),
+        SizedBox(width: _Col.protocol, child: protocol),
+        SizedBox(width: _Col.ping, child: ping),
+      ],
+    );
+  }
+}
+
+class _ServerLine extends StatelessWidget {
+  const _ServerLine({required this.server, required this.store});
+
+  final Server server;
+  final ServersStore store;
+
+  @override
+  Widget build(BuildContext context) {
+    final selected = store.isSelected(server);
+    final ms = store.latencyOf(server);
+    final reason = store.failureOf(server);
+
+    return InkWell(
+      onTap: () => store.select(server),
+      onLongPress: () => _confirmRemove(context, server, store),
+      // На десктопе узел удаляют правой кнопкой; долгое нажатие мышью
+      // никто искать не станет.
+      onSecondaryTap: () => _confirmRemove(context, server, store),
+      hoverColor: C.hover,
+      child: Container(
+        height: 44,
+        padding: const EdgeInsets.symmetric(horizontal: 26),
+        decoration: BoxDecoration(
+          color: selected ? C.selected : Colors.transparent,
+          border: Border(
+            bottom: const BorderSide(color: C.divider),
+            left: BorderSide(
+              color: selected ? C.accent : Colors.transparent,
+              width: 2,
+            ),
+          ),
+        ),
+        child: _ServerTable._row(
+          dot: Align(
+            alignment: Alignment.centerLeft,
+            child: Container(
+              width: 6,
+              height: 6,
+              decoration: BoxDecoration(
+                color: ms != null
+                    ? _Latency._color(ms)
+                    : reason != null
+                    ? C.bad
+                    : C.idle,
+                shape: BoxShape.circle,
+              ),
+            ),
+          ),
+          node: Row(
+            children: [
+              Flexible(
+                child: Text(
+                  server.name,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w500,
+                    color: C.text,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 9),
+              Flexible(
+                child: Text(
+                  server.address,
+                  overflow: TextOverflow.ellipsis,
+                  style: monoStyle(size: 10.5, color: C.textFaint),
+                ),
+              ),
+            ],
+          ),
+          protocol: Align(
+            alignment: Alignment.centerLeft,
+            child: ProtocolBadge(protocol: server.badge),
+          ),
+          ping: _Latency(ms: ms, reason: reason, idle: false),
+        ),
+      ),
+    );
+  }
+}
+
+/// Мобильная карточка узла: то же самое, но в столбик и с отступами под
+/// палец.
+class _ServerCard extends StatelessWidget {
+  const _ServerCard({
     required this.server,
     required this.store,
     required this.onPick,
@@ -323,7 +498,7 @@ class _ServerRow extends StatelessWidget {
   Widget build(BuildContext context) {
     return InkWell(
       onTap: onPick,
-      onLongPress: () => _confirmRemove(context),
+      onLongPress: () => _confirmRemove(context, server, store),
       borderRadius: BorderRadius.circular(Radii.control),
       child: Panel(
         selected: store.isSelected(server),
@@ -365,28 +540,32 @@ class _ServerRow extends StatelessWidget {
       ),
     );
   }
+}
 
-  Future<void> _confirmRemove(BuildContext context) async {
-    final yes = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: C.panel,
-        title: const Text('Удалить узел?'),
-        content: Text(server.name),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Отмена'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Удалить'),
-          ),
-        ],
-      ),
-    );
-    if (yes ?? false) store.remove(server);
-  }
+Future<void> _confirmRemove(
+  BuildContext context,
+  Server server,
+  ServersStore store,
+) async {
+  final yes = await showDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      backgroundColor: C.panel,
+      title: const Text('Удалить узел?'),
+      content: Text(server.name),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, false),
+          child: const Text('Отмена'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(context, true),
+          child: const Text('Удалить'),
+        ),
+      ],
+    ),
+  );
+  if (yes ?? false) store.remove(server);
 }
 
 /// Задержка узла. Три разных состояния, и путать их нельзя: не мерили,
@@ -507,8 +686,7 @@ class _ImportDialogState extends State<_ImportDialog> {
           minLines: 4,
           style: monoStyle(size: 12, color: C.text),
           decoration: InputDecoration(
-            hintText:
-                'vless://…  ·  конфиг sing-box  ·  содержимое подписки в base64',
+            hintText: 'vless://…  ·  конфиг sing-box  ·  содержимое подписки в base64',
             hintStyle: monoStyle(size: 11, color: C.textFaint),
             filled: true,
             fillColor: C.panelSoft,

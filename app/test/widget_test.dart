@@ -93,6 +93,26 @@ void main() {
     expect(find.text('ams-02'), findsOneWidget);
   });
 
+  testWidgets('на широком окне список узлов становится таблицей', (
+    tester,
+  ) async {
+    final store = await pumpAt(tester, const Size(1400, 900));
+    await importInto(tester, store, 'vless://u@1.2.3.4:8443#ams-02');
+    await goTo(tester, Section.servers);
+
+    // Шапка таблицы есть только в широкой раскладке.
+    expect(find.text('ЗАДЕРЖКА'), findsOneWidget);
+    expect(find.text('ams-02'), findsOneWidget);
+    expect(find.text('1.2.3.4:8443'), findsOneWidget);
+
+    // Сужаем то же окно, а не поднимаем приложение заново: предмет
+    // проверки — что раскладка переключилась на тех же данных.
+    tester.view.physicalSize = const Size(420, 900);
+    await tester.pumpAndSettle();
+    expect(find.text('ЗАДЕРЖКА'), findsNothing);
+    expect(find.text('ams-02'), findsOneWidget);
+  });
+
   testWidgets('фильтр по протоколу отсеивает узлы', (tester) async {
     final store = await pumpAt(tester, const Size(420, 900));
     await importInto(
