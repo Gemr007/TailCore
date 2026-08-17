@@ -39,6 +39,37 @@ const rulesetConfig = `{
   "experimental": {"cache_file": {"enabled": true, "path": "singbox-cache.db"}}
 }`
 
+// Правило исключения приложений: имя поля решает всё, а ошибиться в нём
+// легко — на десктопе это process_name, на Android package_name, и ядро
+// молча пропустит незнакомый ключ мимо.
+func TestProcessRuleIsUnderstood(t *testing.T) {
+	const config = `{
+	  "outbounds": [{"type": "direct", "tag": "direct"}],
+	  "route": {
+	    "rules": [
+	      {"process_name": ["Discord.exe"], "outbound": "direct"},
+	      {"package_name": ["com.discord"], "outbound": "direct"}
+	    ]
+	  }
+	}`
+
+	ctx := include.Context(context.Background())
+	options, err := sjson.UnmarshalExtendedContext[option.Options](ctx, []byte(config))
+	if err != nil {
+		t.Fatalf("config with process rules does not parse: %v", err)
+	}
+
+	if len(options.Route.Rules) != 2 {
+		t.Fatalf("rules parsed = %d, want 2", len(options.Route.Rules))
+	}
+	if got := options.Route.Rules[0].DefaultOptions.ProcessName; len(got) != 1 || got[0] != "Discord.exe" {
+		t.Errorf("process_name = %v, want [Discord.exe]", got)
+	}
+	if got := options.Route.Rules[1].DefaultOptions.PackageName; len(got) != 1 || got[0] != "com.discord" {
+		t.Errorf("package_name = %v, want [com.discord]", got)
+	}
+}
+
 func TestRuleSetConfigIsUnderstood(t *testing.T) {
 	ctx := include.Context(context.Background())
 	options, err := sjson.UnmarshalExtendedContext[option.Options](ctx, []byte(rulesetConfig))

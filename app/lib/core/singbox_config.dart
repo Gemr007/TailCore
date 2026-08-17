@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:path_provider/path_provider.dart';
 
+import 'apps.dart';
 import 'server.dart';
 
 /// Локальный порт прокси. Пока константа; настройкой станет на экране
@@ -42,15 +43,43 @@ Future<String> singboxCachePath() async {
   return '${dir.path}/singbox-cache.db';
 }
 
+/// Правило «эти приложения идут напрямую» под конкретную ОС.
+///
+/// null — исключать нечего или платформа не умеет опознавать процессы.
+/// Поле правила выбирается по [os], а не по тому, где собрано приложение:
+/// `process_name` на десктопе, `package_name` на Android.
+Map<String, dynamic>? bypassAppsRule(Set<String> bypassApps, TargetOs os) {
+  final field = processRuleField(os);
+  if (field == null || bypassApps.isEmpty) return null;
+
+  final ids = [
+    for (final t in appTemplates)
+      if (bypassApps.contains(t.id)) ...t.idsFor(os),
+  ];
+  if (ids.isEmpty) return null;
+  return {field: ids, 'outbound': 'direct'};
+}
+
 /// Конфиг для подключения к выбранному узлу.
 ///
 /// [cachePath] нужен только вместе с [bypassGames]: без кэша список доменов
-/// скачивается заново при каждом подключении.
+/// скачивается заново при каждом подключении. [os] подставляется в тестах —
+/// в приложении берётся настоящая система пользователя.
 String buildRunConfig(
   Server server, {
   bool bypassGames = false,
   String? cachePath,
+  Set<String> bypassApps = const {},
+  TargetOs? os,
 }) {
+  final appsRule = bypassAppsRule(bypassApps, os ?? currentOs());
+  // Порядок правил — порядок проверки: приложение опознаётся точнее, чем
+  // домен, поэтому его исключение идёт первым.
+  final rules = [
+    ?appsRule,
+    if (bypassGames) {'rule_set': gamesRuleSet, 'outbound': 'direct'},
+  ];
+
   return jsonEncode({
     'log': {'level': 'warn'},
     'dns': _dns,
@@ -67,10 +96,8 @@ String buildRunConfig(
       {'type': 'direct', 'tag': 'direct'},
     ],
     'route': {
-      if (bypassGames) ...{
-        'rules': [
-          {'rule_set': gamesRuleSet, 'outbound': 'direct'},
-        ],
+      if (rules.isNotEmpty) 'rules': rules,
+      if (bypassGames)
         'rule_set': [
           {
             'type': 'remote',
@@ -84,7 +111,6 @@ String buildRunConfig(
             'update_interval': '7d',
           },
         ],
-      },
       'final': 'proxy',
     },
     if (bypassGames && cachePath != null)

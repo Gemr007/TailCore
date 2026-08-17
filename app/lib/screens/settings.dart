@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../core/apps.dart';
 import '../core/prefs.dart';
 import '../theme.dart';
 import '../widgets/panel.dart';
@@ -10,13 +11,19 @@ import '../widgets/panel.dart';
 /// DNS) приезжает шагом 10. Экраны подписки и управления устройствами в эту
 /// итерацию не входят вовсе.
 class SettingsScreen extends StatelessWidget {
-  const SettingsScreen({super.key, required this.prefs});
+  const SettingsScreen({super.key, required this.prefs, this.os});
 
   final Prefs prefs;
+
+  /// ОС, под которую показывать идентификаторы приложений. Подставляется в
+  /// тестах; в приложении — настоящая система пользователя.
+  final TargetOs? os;
 
   @override
   Widget build(BuildContext context) {
     final pad = MediaQuery.sizeOf(context).width >= 700 ? 26.0 : 22.0;
+    final targetOs = os ?? currentOs();
+    final apps = appTemplatesFor(targetOs);
 
     return ListenableBuilder(
       listenable: prefs,
@@ -42,6 +49,32 @@ class SettingsScreen extends StatelessWidget {
             'подключении. Изменение применяется со следующего подключения.',
             style: monoStyle(size: 10.5, color: C.textFaint),
           ),
+          const SizedBox(height: 24),
+          const _SectionLabel('ПРИЛОЖЕНИЯ МИМО VPN'),
+          const SizedBox(height: 8),
+          if (apps.isEmpty)
+            // Единственная ветка, где раздела нет вовсе: iOS не сообщает
+            // приложению, какой процесс открыл соединение.
+            Text(
+              'Эта система не позволяет определить, какое приложение\n'
+              'открыло соединение, — исключать по приложению нечем.',
+              style: monoStyle(size: 10.5, color: C.textFaint),
+            )
+          else
+            for (final app in apps) ...[
+              _ToggleRow(
+                label: app.name,
+                // Показываем ровно тот идентификатор, по которому ядро
+                // будет искать приложение на этой ОС.
+                hint: app.idsFor(targetOs).join(' · '),
+                value: prefs.bypassApps.contains(app.id),
+                onTap: () => prefs.setBypassApp(
+                  app.id,
+                  !prefs.bypassApps.contains(app.id),
+                ),
+              ),
+              const SizedBox(height: 6),
+            ],
         ],
       ),
     );

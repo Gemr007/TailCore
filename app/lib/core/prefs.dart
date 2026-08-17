@@ -31,6 +31,20 @@ class Prefs extends ChangeNotifier {
     unawaited(save());
   }
 
+  final Set<String> _bypassApps = {};
+
+  /// Приложения, чей трафик идёт мимо туннеля. Хранятся ключами шаблонов,
+  /// а не именами процессов: имя процесса у одного приложения своё на
+  /// каждой ОС, а настройка переезжает вместе с человеком.
+  Set<String> get bypassApps => Set.unmodifiable(_bypassApps);
+
+  void setBypassApp(String id, bool on) {
+    final changed = on ? _bypassApps.add(id) : _bypassApps.remove(id);
+    if (!changed) return;
+    notifyListeners();
+    unawaited(save());
+  }
+
   Future<File> _file() async {
     final existing = storage;
     if (existing != null) return existing;
@@ -53,12 +67,23 @@ class Prefs extends ChangeNotifier {
     if (json is! Map<String, dynamic>) return;
 
     _bypassGames = json['bypass_games'] as bool? ?? false;
+    _bypassApps
+      ..clear()
+      ..addAll([
+        for (final id in (json['bypass_apps'] as List? ?? const []))
+          if (id is String) id,
+      ]);
     notifyListeners();
   }
 
   Future<void> save() async {
     final file = await _file();
     await file.parent.create(recursive: true);
-    await file.writeAsString(jsonEncode({'bypass_games': _bypassGames}));
+    await file.writeAsString(
+      jsonEncode({
+        'bypass_games': _bypassGames,
+        'bypass_apps': _bypassApps.toList(),
+      }),
+    );
   }
 }

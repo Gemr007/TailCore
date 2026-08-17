@@ -133,6 +133,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           buildRunConfig(
             server!,
             bypassGames: bypassGames,
+            bypassApps: widget.prefs.bypassApps,
             // Путь к кэшу спрашиваем только когда он нужен: без rule-set'ов
             // кэшировать нечего, а лишний поход в плагин — лишний отказ.
             cachePath: bypassGames ? await singboxCachePath() : null,

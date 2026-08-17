@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:tailcore/core/apps.dart';
 import 'package:tailcore/core/prefs.dart';
 import 'package:tailcore/core/servers_store.dart';
 import 'package:tailcore/main.dart';
@@ -156,6 +157,29 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(prefs.bypassGames, isTrue);
+  });
+
+  testWidgets('список приложений показывает идентификаторы этой ОС', (
+    tester,
+  ) async {
+    await pumpAt(tester, const Size(420, 900));
+    await goTo(tester, Section.settings);
+
+    final os = currentOs();
+    final discord = appTemplates.firstWhere((t) => t.id == 'discord');
+
+    expect(find.text('Discord'), findsOneWidget);
+    // Идентификатор показывается тот, по которому ядро и будет искать
+    // приложение на этой системе, а не зашитый под одну платформу.
+    expect(find.text(discord.idsFor(os).join(' · ')), findsOneWidget);
+
+    await tester.runAsync(() async {
+      await tester.tap(find.text('Discord'));
+      await tester.pump();
+    });
+    await tester.pumpAndSettle();
+
+    expect(prefs.bypassApps, {'discord'});
   });
 
   testWidgets('экран соединения рисуется независимо от доступности ядра', (
