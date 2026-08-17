@@ -19,12 +19,17 @@ import (
 const probeURL = "https://www.gstatic.com/generate_204"
 
 // Служебные исходящие: они есть в любом конфиге и узлами не являются.
+//
+// shadowtls здесь же, хотя это протокол: он никогда не бывает узлом сам по
+// себе — только маскирующим транспортом под другим исходящим. Мерить его
+// отдельно значит ждать таймаута соединения, которое некому наполнить.
 var serviceOutbounds = map[string]bool{
-	"direct":   true,
-	"block":    true,
-	"dns":      true,
-	"selector": true,
-	"urltest":  true,
+	"direct":    true,
+	"block":     true,
+	"dns":       true,
+	"selector":  true,
+	"urltest":   true,
+	"shadowtls": true,
 }
 
 // Result — ответ замера. Причины отказов возвращаются наравне с

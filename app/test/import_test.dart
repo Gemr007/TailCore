@@ -148,6 +148,63 @@ void main() {
       expect(peer['reserved'], [1, 2, 3]);
     });
 
+    test('SSH и AnyTLS разбираются, NaiveProxy отвергается с причиной', () {
+      final ssh = parseShareLink('ssh://root:pw@10.0.0.1:2222#ssh-box');
+      expect(ssh!.protocol, 'ssh');
+      expect(ssh.port, 2222);
+      expect(ssh.outbound['user'], 'root');
+      expect(ssh.outbound['password'], 'pw');
+
+      // Порт по умолчанию у SSH свой, и он не 443.
+      expect(parseShareLink('ssh://root@10.0.0.1#s')!.port, 22);
+
+      final anytls = parseShareLink('anytls://pw@a.example.com:8443#any');
+      expect(anytls!.protocol, 'anytls');
+      // AnyTLS без TLS не бывает — как и Trojan.
+      expect((anytls.outbound['tls'] as Map)['enabled'], isTrue);
+
+      // NaiveProxy ядру нужен Cronet — узел не собирается, но и не
+      // пропадает молча: пользователю называют причину.
+      final naive = parseImport(
+        'naive+https://user:pw@n.example.com:443#naive',
+      );
+      expect(naive.servers, isEmpty);
+      expect(naive.skipped.single.name, 'naive');
+      expect(naive.skipped.single.reason, contains('Cronet'));
+    });
+
+    test('плагин Shadowsocks не теряется по дороге', () {
+      // obfs-local ядро исполняет само — плагин уезжает в конфиг как есть.
+      final obfs = parseShareLink(
+        'ss://${base64.encode(utf8.encode('aes-256-gcm:pass'))}@5.5.5.5:8388'
+        '?plugin=obfs-local%3Bobfs%3Dhttp%3Bobfs-host%3Dbing.com#ss-obfs',
+      );
+      expect(obfs!.outbound['plugin'], 'obfs-local');
+      expect(obfs.outbound['plugin_opts'], 'obfs=http;obfs-host=bing.com');
+
+      // ShadowTLS — это второй исходящий под узлом, а не поле в нём.
+      final st = parseShareLink(
+        'ss://${base64.encode(utf8.encode('aes-256-gcm:pass'))}@6.6.6.6:443'
+        '?plugin=shadow-tls%3Bhost%3Dwww.microsoft.com%3Bpassword%3Dstpw'
+        '%3Bversion%3D3#ss-stls',
+      );
+      expect(st!.protocol, 'shadowsocks');
+      final transport = st.extras.single;
+      expect(st.outbound['detour'], transport['tag']);
+      expect(transport['type'], 'shadowtls');
+      expect(transport['version'], 3);
+      expect(transport['password'], 'stpw');
+      expect((transport['tls'] as Map)['server_name'], 'www.microsoft.com');
+
+      // Незнакомый плагин называется вслух, а не выбрасывается молча.
+      final result = parseImport(
+        'ss://${base64.encode(utf8.encode('aes-256-gcm:pass'))}@7.7.7.7:8388'
+        '?plugin=kcptun#ss-kcp',
+      );
+      expect(result.servers, isEmpty);
+      expect(result.skipped.single.reason, contains('kcptun'));
+    });
+
     test('незнакомая схема и мусор не роняют импорт', () {
       expect(parseShareLink('magnet:?xt=urn:btih:whatever'), isNull);
       expect(parseShareLink('vless://@:0'), isNull);
@@ -168,6 +225,26 @@ void main() {
         }
       ''');
       expect(servers.servers.map((s) => s.name), ['n1', 'n2']);
+    });
+
+    test('исходящий, на который ссылается detour, узлом не считается', () {
+      // Так записывают ShadowTLS в конфиге sing-box: два исходящих, из
+      // которых узел — только верхний.
+      final result = parseImport('''
+        {
+          "outbounds": [
+            {"type": "shadowsocks", "tag": "ss", "server": "1.1.1.1",
+             "server_port": 443, "method": "aes-256-gcm", "password": "p",
+             "detour": "stls"},
+            {"type": "shadowtls", "tag": "stls", "server": "1.1.1.1",
+             "server_port": 443, "version": 3, "password": "s"}
+          ]
+        }
+      ''');
+
+      final node = result.servers.single;
+      expect(node.name, 'ss');
+      expect(node.extras.single['tag'], 'stls');
     });
 
     test('читает список ссылок построчно', () {

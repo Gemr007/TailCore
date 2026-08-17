@@ -11,6 +11,7 @@ class Server {
     required this.host,
     required this.port,
     required this.outbound,
+    this.extras = const [],
   });
 
   /// Имя из share-ссылки или тега конфига; если его нет — адрес.
@@ -25,6 +26,11 @@ class Server {
   /// outbound; для WireGuard — endpoint, у него в конфиге отдельный массив.
   /// Имя поля осталось прежним: оно же лежит ключом в сохранённом списке.
   final Map<String, dynamic> outbound;
+
+  /// Исходящие, без которых узел не работает, но которые сами узлами не
+  /// являются. Так устроен ShadowTLS: маскирующий транспорт отдельным
+  /// исходящим, а прокси ходит через него по `detour`.
+  final List<Map<String, dynamic>> extras;
 
   /// WireGuard в sing-box 1.13 живёт не среди исходящих, а в `endpoints`.
   /// Положить его к остальным — получить «unknown outbound type» на старте.
@@ -52,12 +58,19 @@ class Server {
     'host': host,
     'port': port,
     'outbound': outbound,
+    if (extras.isNotEmpty) 'extras': extras,
   };
 
   static Server? fromJson(Map<String, dynamic> json) {
     final outbound = json['outbound'];
     if (outbound is! Map) return null;
-    return fromOutbound(Map<String, dynamic>.from(outbound));
+    return fromOutbound(
+      Map<String, dynamic>.from(outbound),
+      extras: [
+        for (final e in (json['extras'] as List? ?? const []))
+          if (e is Map) Map<String, dynamic>.from(e),
+      ],
+    );
   }
 
   /// Служебные исходящие sing-box: они есть почти в каждом конфиге и узлами
@@ -66,7 +79,10 @@ class Server {
 
   /// Собирает узел из outbound sing-box. null — если это служебный
   /// исходящий или в нём нет адреса, по которому можно подключиться.
-  static Server? fromOutbound(Map<String, dynamic> outbound) {
+  static Server? fromOutbound(
+    Map<String, dynamic> outbound, {
+    List<Map<String, dynamic>> extras = const [],
+  }) {
     final type = outbound['type'];
     if (type is! String || _service.contains(type)) return null;
 
@@ -87,6 +103,7 @@ class Server {
       host: host,
       port: port.toInt(),
       outbound: outbound,
+      extras: extras,
     );
   }
 }

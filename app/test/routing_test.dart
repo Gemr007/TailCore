@@ -145,6 +145,40 @@ void main() {
     expect(test['outbounds'], isEmpty);
   });
 
+  test('транспорт под узлом попадает в конфиг вместе с ним', () {
+    final node = Server.fromOutbound(
+      {
+        'type': 'shadowsocks',
+        'tag': 'ss',
+        'server': '1.1.1.1',
+        'server_port': 443,
+        'method': 'aes-256-gcm',
+        'password': 'p',
+        'detour': 'stls',
+      },
+      extras: [
+        {
+          'type': 'shadowtls',
+          'tag': 'stls',
+          'server': '1.1.1.1',
+          'server_port': 443,
+        },
+      ],
+    )!;
+
+    final run = jsonDecode(buildRunConfig(node)) as Map<String, dynamic>;
+    final tags = [for (final o in run['outbounds'] as List) o['tag']];
+    // Без транспорта detour у прокси указывает в пустоту, и ядро не
+    // стартует вовсе.
+    expect(tags, ['proxy', 'stls', 'direct']);
+
+    final test = jsonDecode(buildTestConfig([node])) as Map<String, dynamic>;
+    expect(
+      [for (final o in test['outbounds'] as List) o['tag']],
+      [node.id, 'stls'],
+    );
+  });
+
   test('порт и резолвер берутся из настроек', () {
     final config = jsonDecode(
       buildRunConfig(_node(), localPort: 3128, dnsServer: '9.9.9.9'),

@@ -117,6 +117,9 @@ String buildRunConfig(
     if (server.isEndpoint) 'endpoints': [proxyNode],
     'outbounds': [
       if (!server.isEndpoint) proxyNode,
+      // Транспорт под узлом (ShadowTLS) — отдельный исходящий: без него
+      // detour у прокси указывает в пустоту, и ядро не стартует.
+      ...server.extras,
       {
         'type': 'direct',
         'tag': 'direct',
@@ -170,8 +173,10 @@ String buildTestConfig(
     // Тегом служит ключ узла: по нему же приходит ответ с задержками.
     // WireGuard уезжает в endpoints — ядро меряет и их тоже.
     'outbounds': [
-      for (final s in servers)
+      for (final s in servers) ...[
         if (!s.isEndpoint) {...s.outbound, 'tag': s.id},
+        ...s.extras,
+      ],
     ],
     if (servers.any((s) => s.isEndpoint))
       'endpoints': [

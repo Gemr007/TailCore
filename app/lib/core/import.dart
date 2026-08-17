@@ -71,10 +71,38 @@ List<Server> _parseSingBox(String text) {
     return const [];
   }
 
-  return [
+  final maps = [
     for (final o in outbounds)
-      if (o is Map<String, dynamic>)
-        ?Server.fromOutbound(Map<String, dynamic>.from(o)),
+      if (o is Map<String, dynamic>) Map<String, dynamic>.from(o),
+  ];
+
+  // Исходящие, на которые кто-то ссылается через detour, узлами не
+  // являются: это транспорт под узлом (ShadowTLS так и записывают). Без
+  // этого разбора получилось бы два «узла», один из которых не работает,
+  // а у второго detour указывал бы в пустоту.
+  final byTag = {
+    for (final o in maps)
+      if (o['tag'] is String) '${o['tag']}': o,
+  };
+  final used = <String>{};
+  final extrasOf = <Map<String, dynamic>, List<Map<String, dynamic>>>{};
+
+  for (final o in maps) {
+    final chain = <Map<String, dynamic>>[];
+    var detour = o['detour'];
+    while (detour is String && byTag.containsKey(detour)) {
+      if (!used.add(detour)) break; // кольцо ссылок — не наша забота
+      final next = byTag[detour]!;
+      chain.add(next);
+      detour = next['detour'];
+    }
+    if (chain.isNotEmpty) extrasOf[o] = chain;
+  }
+
+  return [
+    for (final o in maps)
+      if (!used.contains('${o['tag']}'))
+        ?Server.fromOutbound(o, extras: extrasOf[o] ?? const []),
   ];
 }
 
@@ -188,6 +216,26 @@ Server? parseWireguardConf(String text) {
     return (server: null, unsupported: unsupported, name: name);
   }
 
+  // NaiveProxy распознаётся, но не собирается: ядру для него нужен Cronet
+  // — прибитая к платформе библиотека Chromium. Назвать причину дешевле,
+  // чем отдать узел, который не поднимется.
+  if (scheme.startsWith('naive')) {
+    return (
+      server: null,
+      unsupported: 'NaiveProxy — ядру нужен Cronet, отдельный шаг',
+      name: name,
+    );
+  }
+
+  // То же для плагинов Shadowsocks: выбросить плагин и собрать голый ss —
+  // значит отдать узел, который подключается и молча не работает.
+  if (scheme == 'ss') {
+    final badPlugin = _unsupportedPlugin(uri.queryParameters['plugin']);
+    if (badPlugin != null) {
+      return (server: null, unsupported: badPlugin, name: name);
+    }
+  }
+
   final outbound = switch (scheme) {
     'vless' => _vless(uri),
     'trojan' => _trojan(uri),
@@ -195,6 +243,8 @@ Server? parseWireguardConf(String text) {
     'hysteria2' || 'hy2' => _hysteria2(uri),
     'tuic' => _tuic(uri),
     'wireguard' || 'wg' => _wireguard(uri),
+    'ssh' => _ssh(uri),
+    'anytls' => _anytls(uri),
     'socks' || 'socks5' => _socks(uri),
     'http' || 'https' => _http(uri, tls: scheme == 'https'),
     _ => null,
@@ -202,7 +252,92 @@ Server? parseWireguardConf(String text) {
   if (outbound == null) return nothing;
 
   if (uri.fragment.isNotEmpty) outbound['tag'] = name;
-  return (server: Server.fromOutbound(outbound), unsupported: null, name: name);
+
+  // ShadowTLS — единственный случай, когда узел это два исходящих: сам
+  // прокси и маскирующий транспорт под ним.
+  final extras = scheme == 'ss'
+      ? _shadowtlsUnder(outbound, uri)
+      : const <Map<String, dynamic>>[];
+  return (
+    server: Server.fromOutbound(outbound, extras: extras),
+    unsupported: null,
+    name: name,
+  );
+}
+
+/// Плагины SIP003 у Shadowsocks. `obfs-local` и `v2ray-plugin` ядро умеет
+/// само — они уезжают в конфиг как есть. `shadow-tls` собирается вторым
+/// исходящим. Остальные придётся назвать вслух: молча выброшенный плагин
+/// даёт узел, который выглядит рабочим и не подключается.
+String? _unsupportedPlugin(String? raw) {
+  if (raw == null || raw.isEmpty) return null;
+  final name = raw.split(';').first.trim();
+  return switch (name) {
+    'obfs-local' || 'simple-obfs' || 'v2ray-plugin' || 'shadow-tls' => null,
+    _ => 'плагин $name ядро не поддерживает',
+  };
+}
+
+/// Параметры плагина: `name;key=value;flag` — как их пишет SIP003.
+({String name, Map<String, String> opts})? _plugin(Uri uri) {
+  final raw = uri.queryParameters['plugin'];
+  if (raw == null || raw.isEmpty) return null;
+
+  final parts = raw.split(';');
+  final opts = <String, String>{};
+  for (final part in parts.skip(1)) {
+    final eq = part.indexOf('=');
+    if (eq > 0) {
+      opts[part.substring(0, eq).trim()] = part.substring(eq + 1).trim();
+    } else if (part.trim().isNotEmpty) {
+      opts[part.trim()] = '';
+    }
+  }
+  return (name: parts.first.trim(), opts: opts);
+}
+
+/// Достраивает ShadowTLS под узлом Shadowsocks и возвращает его вторым
+/// исходящим. Пусто, если плагина нет или он не ShadowTLS.
+///
+/// Тег транспорта считается по адресу узла: в конфиге замера рядом лежат
+/// все узлы сразу, и одинаковый тег склеил бы два разных.
+List<Map<String, dynamic>> _shadowtlsUnder(
+  Map<String, dynamic> outbound,
+  Uri uri,
+) {
+  final plugin = _plugin(uri);
+  if (plugin == null) return const [];
+
+  if (plugin.name != 'shadow-tls') {
+    // obfs-local и v2ray-plugin ядро исполняет само — отдаём как есть.
+    outbound['plugin'] = plugin.name == 'simple-obfs'
+        ? 'obfs-local'
+        : plugin.name;
+    outbound['plugin_opts'] = uri.queryParameters['plugin']!
+        .split(';')
+        .skip(1)
+        .join(';');
+    return const [];
+  }
+
+  final host = '${outbound['server']}';
+  final port = outbound['server_port'];
+  final tag = 'shadowtls-$host-$port';
+  final sni = plugin.opts['host'] ?? host;
+
+  outbound['detour'] = tag;
+  return [
+    {
+      'type': 'shadowtls',
+      'tag': tag,
+      'server': host,
+      'server_port': port,
+      'version': int.tryParse(plugin.opts['version'] ?? '') ?? 3,
+      if ((plugin.opts['password'] ?? '').isNotEmpty)
+        'password': plugin.opts['password'],
+      'tls': {'enabled': true, 'server_name': sni},
+    },
+  ];
 }
 
 /// Транспорты Xray, которых нет в sing-box. Причина пишется человеческим
@@ -456,6 +591,34 @@ List<int>? _reserved(String? raw) {
   } on FormatException {
     return null;
   }
+}
+
+/// SSH-туннель. Ключ из ссылки не берётся: приватный ключ в ссылке,
+/// которую пересылают в мессенджере, — не тот случай, который стоит
+/// поддерживать. Такой узел заходит конфигом sing-box.
+Map<String, dynamic>? _ssh(Uri uri) {
+  final creds = uri.userInfo.split(':');
+  if (creds.first.isEmpty) return null;
+  return {
+    'type': 'ssh',
+    'server': uri.host,
+    'server_port': uri.port == 0 ? 22 : uri.port,
+    'user': Uri.decodeComponent(creds.first),
+    if (creds.length > 1) 'password': Uri.decodeComponent(creds[1]),
+  };
+}
+
+/// AnyTLS. Как и Trojan, без TLS не бывает — в этом весь смысл протокола.
+Map<String, dynamic>? _anytls(Uri uri) {
+  final password = Uri.decodeComponent(uri.userInfo);
+  if (password.isEmpty) return null;
+  return {
+    'type': 'anytls',
+    'server': uri.host,
+    'server_port': uri.port,
+    'password': password,
+    ...?_tls(uri, defaultEnabled: true),
+  };
 }
 
 Map<String, dynamic> _socks(Uri uri) {
