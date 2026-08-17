@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../core/prefs.dart';
 import '../core/server.dart';
 import '../core/servers_store.dart';
 import '../core/singbox_config.dart';
@@ -11,9 +12,10 @@ import '../theme.dart';
 import '../widgets/panel.dart';
 
 class DashboardScreen extends StatefulWidget {
-  const DashboardScreen({super.key, required this.store});
+  const DashboardScreen({super.key, required this.store, required this.prefs});
 
   final ServersStore store;
+  final Prefs prefs;
 
   @override
   State<DashboardScreen> createState() => _DashboardScreenState();
@@ -126,7 +128,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
       if (running) {
         await TunnelCore.instance.stop();
       } else {
-        await TunnelCore.instance.start(buildRunConfig(server!));
+        final bypassGames = widget.prefs.bypassGames;
+        await TunnelCore.instance.start(
+          buildRunConfig(
+            server!,
+            bypassGames: bypassGames,
+            // Путь к кэшу спрашиваем только когда он нужен: без rule-set'ов
+            // кэшировать нечего, а лишний поход в плагин — лишний отказ.
+            cachePath: bypassGames ? await singboxCachePath() : null,
+          ),
+        );
       }
     } on TunnelException catch (e) {
       if (mounted) setState(() => _actionError = e.message);
@@ -259,10 +270,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       busy: _busy,
                       onTap: _toggle,
                     ),
-                    _Field(
-                      label: 'АКТИВНЫЙ УЗЕЛ',
-                      value: _server?.name ?? '—',
-                    ),
+                    _Field(label: 'АКТИВНЫЙ УЗЕЛ', value: _server?.name ?? '—'),
                     _Field(
                       label: 'ПРОТОКОЛ',
                       value: _server?.badge ?? '—',

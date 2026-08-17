@@ -1,18 +1,23 @@
 import 'package:flutter/material.dart';
 
+import 'core/prefs.dart';
 import 'core/servers_store.dart';
 import 'screens/dashboard.dart';
 import 'screens/servers.dart';
+import 'screens/settings.dart';
 import 'theme.dart';
 
 void main() => runApp(const TailCoreApp());
 
 class TailCoreApp extends StatefulWidget {
-  const TailCoreApp({super.key, this.store});
+  const TailCoreApp({super.key, this.store, this.prefs});
 
   /// Хранилище узлов. Подставляется в тестах; в приложении создаётся здесь
   /// и живёт всё время работы.
   final ServersStore? store;
+
+  /// Настройки. Подставляются в тестах по той же причине.
+  final Prefs? prefs;
 
   @override
   State<TailCoreApp> createState() => _TailCoreAppState();
@@ -20,18 +25,21 @@ class TailCoreApp extends StatefulWidget {
 
 class _TailCoreAppState extends State<TailCoreApp> {
   late final ServersStore _store = widget.store ?? ServersStore();
+  late final Prefs _prefs = widget.prefs ?? Prefs();
 
   @override
   void initState() {
     super.initState();
-    // Список узлов не нужен для первого кадра: экран рисуется пустым и
-    // наполняется, когда файл прочитан.
+    // Список узлов и настройки не нужны для первого кадра: экраны рисуются
+    // с пустыми значениями и наполняются, когда файлы прочитаны.
     unawaited(_store.load());
+    unawaited(_prefs.load());
   }
 
   @override
   void dispose() {
     _store.dispose();
+    _prefs.dispose();
     super.dispose();
   }
 
@@ -43,7 +51,7 @@ class _TailCoreAppState extends State<TailCoreApp> {
       // Светлой темы у приложения не предполагается — не тема по умолчанию,
       // а единственная.
       theme: buildTheme(),
-      home: AppShell(store: _store),
+      home: AppShell(store: _store, prefs: _prefs),
     );
   }
 }
@@ -68,9 +76,10 @@ enum Section {
 /// снизу. Порог по ширине, а не по платформе, — узкое окно на десктопе
 /// ведёт себя как телефон, и это правильно.
 class AppShell extends StatefulWidget {
-  const AppShell({super.key, required this.store});
+  const AppShell({super.key, required this.store, required this.prefs});
 
   final ServersStore store;
+  final Prefs prefs;
 
   @override
   State<AppShell> createState() => _AppShellState();
@@ -86,10 +95,12 @@ class _AppShellState extends State<AppShell> {
     final wide = MediaQuery.sizeOf(context).width >= _sidebarBreakpoint;
     final body = SafeArea(
       child: switch (_section) {
-        Section.dashboard => DashboardScreen(store: widget.store),
+        Section.dashboard => DashboardScreen(
+          store: widget.store,
+          prefs: widget.prefs,
+        ),
         Section.servers => ServersScreen(store: widget.store),
-        // Настройки приезжают шагом 10.
-        Section.settings => _SectionPlaceholder(section: _section),
+        Section.settings => SettingsScreen(prefs: widget.prefs),
       },
     );
 
@@ -317,23 +328,6 @@ class _BrandMark extends StatelessWidget {
       decoration: BoxDecoration(
         color: C.accent,
         borderRadius: BorderRadius.circular(2.5),
-      ),
-    );
-  }
-}
-
-/// Заглушка ещё не сделанного раздела.
-class _SectionPlaceholder extends StatelessWidget {
-  const _SectionPlaceholder({required this.section});
-
-  final Section section;
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Text(
-        section.label,
-        style: Theme.of(context).textTheme.headlineMedium,
       ),
     );
   }

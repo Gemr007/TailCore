@@ -163,7 +163,10 @@ class ServersStore extends ChangeNotifier {
       final request = await client.getUrl(Uri.parse(url));
       final response = await request.close();
       if (response.statusCode != HttpStatus.ok) {
-        throw HttpException('подписка ответила ${response.statusCode}', uri: Uri.parse(url));
+        throw HttpException(
+          'подписка ответила ${response.statusCode}',
+          uri: Uri.parse(url),
+        );
       }
       return await response.transform(utf8.decoder).join();
     } finally {
@@ -239,8 +242,9 @@ class ServersStore extends ChangeNotifier {
 }
 
 /// Сохранение не должно задерживать отрисовку, но и молча теряться тоже.
+/// Общий помощник: тем же способом сохраняются и настройки.
 void unawaited(Future<void> future) {
   future.catchError((Object e) {
-    debugPrint('servers store: $e');
+    debugPrint('tailcore store: $e');
   });
 }

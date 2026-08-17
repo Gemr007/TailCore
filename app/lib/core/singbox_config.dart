@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:path_provider/path_provider.dart';
+
 import 'server.dart';
 
 /// Локальный порт прокси. Пока константа; настройкой станет на экране
@@ -26,8 +28,29 @@ const _dns = {
   'strategy': 'prefer_ipv4',
 };
 
+/// Rule-set с доменами игровых сервисов из sing-geosite.
+///
+/// Формат `.srs` — текущий у sing-box; поле `geosite` из старых конфигов
+/// объявлено устаревшим и в новых ядрах не работает.
+const gamesRuleSet = 'geosite-category-games';
+const _gamesRuleSetUrl =
+    'https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/$gamesRuleSet.srs';
+
+/// Файл, в котором ядро держит скачанные rule-set'ы.
+Future<String> singboxCachePath() async {
+  final dir = await getApplicationSupportDirectory();
+  return '${dir.path}/singbox-cache.db';
+}
+
 /// Конфиг для подключения к выбранному узлу.
-String buildRunConfig(Server server) {
+///
+/// [cachePath] нужен только вместе с [bypassGames]: без кэша список доменов
+/// скачивается заново при каждом подключении.
+String buildRunConfig(
+  Server server, {
+  bool bypassGames = false,
+  String? cachePath,
+}) {
   return jsonEncode({
     'log': {'level': 'warn'},
     'dns': _dns,
@@ -43,7 +66,31 @@ String buildRunConfig(Server server) {
       {...server.outbound, 'tag': 'proxy'},
       {'type': 'direct', 'tag': 'direct'},
     ],
-    'route': {'final': 'proxy'},
+    'route': {
+      if (bypassGames) ...{
+        'rules': [
+          {'rule_set': gamesRuleSet, 'outbound': 'direct'},
+        ],
+        'rule_set': [
+          {
+            'type': 'remote',
+            'tag': gamesRuleSet,
+            'format': 'binary',
+            'url': _gamesRuleSetUrl,
+            // Качаем через сам туннель, а не напрямую: raw.githubusercontent
+            // недоступен ровно в тех сетях, ради которых ставят VPN, и
+            // прямая загрузка там уронила бы подключение целиком.
+            'download_detour': 'proxy',
+            'update_interval': '7d',
+          },
+        ],
+      },
+      'final': 'proxy',
+    },
+    if (bypassGames && cachePath != null)
+      'experimental': {
+        'cache_file': {'enabled': true, 'path': cachePath},
+      },
   });
 }
 
@@ -60,6 +107,8 @@ String buildTestConfig(List<Server> servers) {
     'log': {'level': 'error'},
     'dns': _dns,
     // Тегом служит ключ узла: по нему же приходит ответ с задержками.
-    'outbounds': [for (final s in servers) {...s.outbound, 'tag': s.id}],
+    'outbounds': [
+      for (final s in servers) {...s.outbound, 'tag': s.id},
+    ],
   });
 }

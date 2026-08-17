@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:tailcore/core/prefs.dart';
 import 'package:tailcore/core/servers_store.dart';
 import 'package:tailcore/main.dart';
 import 'package:tailcore/screens/dashboard.dart';
@@ -9,14 +10,19 @@ import 'package:tailcore/screens/servers.dart';
 
 late Directory _dir;
 
+/// Настройки последнего поднятого приложения: файловый ввод-вывод в тестах
+/// свой, а проверять содержимое иногда надо.
+late Prefs prefs;
+
 /// Ставит размер окна на время теста: оболочка выбирает боковую панель или
 /// нижнюю, так что размер окна здесь — сам предмет проверки.
 Future<ServersStore> pumpAt(WidgetTester tester, Size size) async {
   final store = ServersStore(storage: File('${_dir.path}/servers.json'));
+  prefs = Prefs(storage: File('${_dir.path}/prefs.json'));
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1.0;
   addTearDown(tester.view.reset);
-  await tester.pumpWidget(TailCoreApp(store: store));
+  await tester.pumpWidget(TailCoreApp(store: store, prefs: prefs));
   await tester.pumpAndSettle();
   return store;
 }
@@ -130,6 +136,26 @@ void main() {
 
     expect(find.text('t-node'), findsOneWidget);
     expect(find.text('v-node'), findsNothing);
+  });
+
+  testWidgets('тумблер «игры мимо VPN» переключается и запоминается', (
+    tester,
+  ) async {
+    await pumpAt(tester, const Size(420, 900));
+    await goTo(tester, Section.settings);
+
+    expect(find.text('РОУТИНГ'), findsOneWidget);
+    expect(prefs.bypassGames, isFalse);
+
+    // Запись настройки уходит на диск, а в фейковом времени настоящий
+    // ввод-вывод не завершается — отпускаем настоящий цикл событий.
+    await tester.runAsync(() async {
+      await tester.tap(find.text('Игры мимо VPN'));
+      await tester.pump();
+    });
+    await tester.pumpAndSettle();
+
+    expect(prefs.bypassGames, isTrue);
   });
 
   testWidgets('экран соединения рисуется независимо от доступности ядра', (
