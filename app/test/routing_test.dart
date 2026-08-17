@@ -118,6 +118,33 @@ void main() {
     expect((rules.last as Map)['rule_set'], gamesRuleSet);
   });
 
+  test('WireGuard едет в endpoints, а не к исходящим', () {
+    final wg = Server.fromOutbound({
+      'type': 'wireguard',
+      'tag': 'wg',
+      'address': ['10.0.0.2/32'],
+      'private_key': 'k',
+      'peers': [
+        {'address': '1.2.3.4', 'port': 51820, 'public_key': 'p'},
+      ],
+    })!;
+
+    final config = jsonDecode(buildRunConfig(wg)) as Map<String, dynamic>;
+    final endpoints = config['endpoints'] as List;
+    expect(endpoints.single['tag'], 'proxy');
+    expect(endpoints.single['type'], 'wireguard');
+    // Среди исходящих остаётся только direct: положить туда WireGuard —
+    // «unknown outbound type» ещё на разборе конфига.
+    final outbounds = config['outbounds'] as List;
+    expect(outbounds.single['tag'], 'direct');
+    expect(config['route']['final'], 'proxy');
+
+    // В конфиге замера — то же разделение, иначе узел не измерится.
+    final test = jsonDecode(buildTestConfig([wg])) as Map<String, dynamic>;
+    expect((test['endpoints'] as List).single['tag'], wg.id);
+    expect(test['outbounds'], isEmpty);
+  });
+
   test('порт и резолвер берутся из настроек', () {
     final config = jsonDecode(
       buildRunConfig(_node(), localPort: 3128, dnsServer: '9.9.9.9'),

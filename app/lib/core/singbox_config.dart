@@ -93,6 +93,14 @@ String buildRunConfig(
     if (bypassGames) {'rule_set': gamesRuleSet, 'outbound': 'direct'},
   ];
 
+  final proxyNode = {
+    ...server.outbound,
+    'tag': 'proxy',
+    // Имя самого узла разрешается напрямую: спрашивать его через туннель,
+    // который поднимается ради этого ответа, некому.
+    if (dnsThroughTunnel) 'domain_resolver': 'bootstrap',
+  };
+
   return jsonEncode({
     'log': {'level': 'warn'},
     'dns': dnsConfig(server: dnsServer, throughTunnel: dnsThroughTunnel),
@@ -104,14 +112,11 @@ String buildRunConfig(
         'listen_port': localPort,
       },
     ],
+    // WireGuard живёт в отдельном массиве: положить его к исходящим —
+    // получить «unknown outbound type: wireguard» ещё на разборе конфига.
+    if (server.isEndpoint) 'endpoints': [proxyNode],
     'outbounds': [
-      {
-        ...server.outbound,
-        'tag': 'proxy',
-        // Имя самого узла разрешается напрямую: спрашивать его через
-        // туннель, который поднимается ради этого ответа, некому.
-        if (dnsThroughTunnel) 'domain_resolver': 'bootstrap',
-      },
+      if (!server.isEndpoint) proxyNode,
       {
         'type': 'direct',
         'tag': 'direct',
@@ -163,8 +168,15 @@ String buildTestConfig(
     // узлов, каждый со своим тегом.
     'dns': dnsConfig(server: dnsServer),
     // Тегом служит ключ узла: по нему же приходит ответ с задержками.
+    // WireGuard уезжает в endpoints — ядро меряет и их тоже.
     'outbounds': [
-      for (final s in servers) {...s.outbound, 'tag': s.id},
+      for (final s in servers)
+        if (!s.isEndpoint) {...s.outbound, 'tag': s.id},
     ],
+    if (servers.any((s) => s.isEndpoint))
+      'endpoints': [
+        for (final s in servers)
+          if (s.isEndpoint) {...s.outbound, 'tag': s.id},
+      ],
   });
 }

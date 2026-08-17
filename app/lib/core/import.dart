@@ -28,6 +28,16 @@ ImportResult parseImport(String text) {
   final trimmed = text.trim();
   if (trimmed.isEmpty) return ImportResult.empty;
 
+  // Файл WireGuard узнаётся по секции: провайдеры отдают именно его, а не
+  // ссылку, и человек приносит его целиком.
+  if (trimmed.contains('[Interface]')) {
+    final wg = parseWireguardConf(trimmed);
+    if (wg != null) return ImportResult([wg], const []);
+    return const ImportResult([], [
+      (name: 'WireGuard', reason: 'в файле нет ключей или адреса пира'),
+    ]);
+  }
+
   final fromJson = _parseSingBox(trimmed);
   if (fromJson.isNotEmpty) return ImportResult(fromJson, const []);
 
@@ -89,6 +99,58 @@ ImportResult _parseLinks(String text) {
 /// в ссылке нет адреса.
 Server? parseShareLink(String link) => parseNode(link).server;
 
+/// Разбирает файл `.conf` WireGuard — тот самый, который выдают провайдеры.
+/// null, если нет ключей или адреса пира: узел без них не поднимется, а
+/// молча собранная половина конфига выглядела бы рабочей.
+Server? parseWireguardConf(String text) {
+  final values = <String, String>{};
+  var section = '';
+
+  for (final raw in text.split(RegExp(r'[\r\n]+'))) {
+    var line = raw.trim();
+    final comment = line.indexOf('#');
+    if (comment >= 0) line = line.substring(0, comment).trim();
+    if (line.isEmpty) continue;
+
+    if (line.startsWith('[')) {
+      section = line.toLowerCase();
+      continue;
+    }
+    final eq = line.indexOf('=');
+    if (eq <= 0) continue;
+    // Ключ секцией вперёд: PublicKey есть и у интерфейса, и у пира.
+    final key = '$section.${line.substring(0, eq).trim().toLowerCase()}';
+    values[key] = line.substring(eq + 1).trim();
+  }
+
+  final privateKey = values['[interface].privatekey'] ?? '';
+  final publicKey = values['[peer].publickey'] ?? '';
+  final endpoint = values['[peer].endpoint'] ?? '';
+  final addresses = _prefixes(values['[interface].address'] ?? '');
+  final colon = endpoint.lastIndexOf(':');
+  if (privateKey.isEmpty || publicKey.isEmpty || colon <= 0) return null;
+  if (addresses.isEmpty) return null;
+
+  final port = int.tryParse(endpoint.substring(colon + 1));
+  if (port == null) return null;
+
+  final allowed = _prefixes(values['[peer].allowedips'] ?? '');
+  return Server.fromOutbound({
+    ..._wireguardEndpoint(
+      privateKey: privateKey,
+      publicKey: publicKey,
+      presharedKey: values['[peer].presharedkey'],
+      // IPv6-адрес пира пишут в скобках — их ядро не ждёт.
+      host: endpoint.substring(0, colon).replaceAll(RegExp(r'[\[\]]'), ''),
+      port: port,
+      addresses: addresses,
+      mtu: int.tryParse(values['[interface].mtu'] ?? ''),
+      allowedIps: allowed.isEmpty ? const ['0.0.0.0/0', '::/0'] : allowed,
+    ),
+    'tag': 'WireGuard',
+  });
+}
+
 /// Разбирает ссылку, различая три исхода: узел готов; узел распознан, но
 /// работать на нашем ядре не может; это вообще не ссылка на узел.
 ({Server? server, String? unsupported, String name}) parseNode(String link) {
@@ -121,7 +183,8 @@ Server? parseShareLink(String link) => parseNode(link).server;
   // Транспорт проверяем до сборки outbound: узел с транспортом, которого
   // ядро не знает, нельзя ни собрать, ни тихо упростить до TCP.
   final unsupported = _unsupportedTransport(uri.queryParameters['type']);
-  if (unsupported != null && (scheme == 'vless' || scheme == 'vmess' || scheme == 'trojan')) {
+  if (unsupported != null &&
+      (scheme == 'vless' || scheme == 'vmess' || scheme == 'trojan')) {
     return (server: null, unsupported: unsupported, name: name);
   }
 
@@ -131,6 +194,7 @@ Server? parseShareLink(String link) => parseNode(link).server;
     'ss' => _shadowsocks(link, uri),
     'hysteria2' || 'hy2' => _hysteria2(uri),
     'tuic' => _tuic(uri),
+    'wireguard' || 'wg' => _wireguard(uri),
     'socks' || 'socks5' => _socks(uri),
     'http' || 'https' => _http(uri, tls: scheme == 'https'),
     _ => null,
@@ -145,7 +209,14 @@ Server? parseShareLink(String link) => parseNode(link).server;
 /// языком: пользователю нужно понять, что делать, а не что сломалось.
 String? _unsupportedTransport(String? type) {
   return switch (type) {
-    null || '' || 'tcp' || 'raw' || 'ws' || 'grpc' || 'http' || 'h2' ||
+    null ||
+    '' ||
+    'tcp' ||
+    'raw' ||
+    'ws' ||
+    'grpc' ||
+    'http' ||
+    'h2' ||
     'httpupgrade' => null,
     'xhttp' || 'splithttp' => 'транспорт XHTTP — нужен Xray-core',
     'kcp' || 'mkcp' => 'транспорт mKCP — нужен Xray-core',
@@ -240,7 +311,8 @@ Map<String, dynamic>? _shadowsocks(String link, Uri uri) {
   var port = uri.port;
 
   if (host.isNotEmpty && uri.userInfo.isNotEmpty) {
-    final creds = _base64OrNull(uri.userInfo) ?? Uri.decodeComponent(uri.userInfo);
+    final creds =
+        _base64OrNull(uri.userInfo) ?? Uri.decodeComponent(uri.userInfo);
     final split = creds.indexOf(':');
     if (split < 0) return null;
     method = creds.substring(0, split);
@@ -299,6 +371,91 @@ Map<String, dynamic>? _tuic(Uri uri) {
       'udp_relay_mode': q['udp_relay_mode'],
     ...?_tls(uri, defaultEnabled: true),
   };
+}
+
+/// WireGuard из share-ссылки: приватный ключ в userInfo, публичный и
+/// адреса — в параметрах. Формат сложился у NekoBox и v2rayN, своего
+/// стандарта у WireGuard-ссылок нет.
+Map<String, dynamic>? _wireguard(Uri uri) {
+  final privateKey = Uri.decodeComponent(uri.userInfo);
+  final q = uri.queryParameters;
+  final publicKey = q['publickey'] ?? q['public_key'] ?? '';
+  if (privateKey.isEmpty || publicKey.isEmpty || uri.host.isEmpty) return null;
+
+  final addresses = _prefixes(q['address'] ?? q['ip'] ?? '');
+  if (addresses.isEmpty) return null;
+
+  return _wireguardEndpoint(
+    privateKey: privateKey,
+    publicKey: publicKey,
+    presharedKey: q['presharedkey'] ?? q['pre_shared_key'],
+    host: uri.host,
+    port: uri.port == 0 ? 51820 : uri.port,
+    addresses: addresses,
+    mtu: int.tryParse(q['mtu'] ?? ''),
+    reserved: _reserved(q['reserved']),
+  );
+}
+
+/// Endpoint sing-box из разобранных полей. Один сборщик на ссылку и на
+/// файл `.conf`: расходиться этим двум путям незачем.
+Map<String, dynamic> _wireguardEndpoint({
+  required String privateKey,
+  required String publicKey,
+  required String host,
+  required int port,
+  required List<String> addresses,
+  String? presharedKey,
+  int? mtu,
+  List<int>? reserved,
+  List<String> allowedIps = const ['0.0.0.0/0', '::/0'],
+}) {
+  return {
+    'type': 'wireguard',
+    'address': addresses,
+    'private_key': privateKey,
+    if (mtu != null && mtu > 0) 'mtu': mtu,
+    'peers': [
+      {
+        'address': host,
+        'port': port,
+        'public_key': publicKey,
+        if (presharedKey != null && presharedKey.isNotEmpty)
+          'pre_shared_key': presharedKey,
+        'allowed_ips': allowedIps,
+        if (reserved != null && reserved.length == 3) 'reserved': reserved,
+      },
+    ],
+  };
+}
+
+/// Адреса интерфейса. Без длины префикса ядро конфиг не примет, поэтому
+/// голому адресу она добавляется: /32 для IPv4, /128 для IPv6.
+List<String> _prefixes(String raw) {
+  return [
+    for (final part in raw.split(','))
+      if (part.trim().isNotEmpty)
+        if (part.contains('/'))
+          part.trim()
+        else
+          '${part.trim()}/${part.contains(':') ? 128 : 32}',
+  ];
+}
+
+/// reserved у Cloudflare WARP: три байта, числами или в base64.
+List<int>? _reserved(String? raw) {
+  if (raw == null || raw.isEmpty) return null;
+  if (raw.contains(',')) {
+    final parts = [for (final p in raw.split(',')) int.tryParse(p.trim())];
+    if (parts.length != 3 || parts.contains(null)) return null;
+    return [for (final p in parts) p!];
+  }
+  try {
+    final bytes = base64.decode(base64.normalize(raw));
+    return bytes.length == 3 ? bytes : null;
+  } on FormatException {
+    return null;
+  }
 }
 
 Map<String, dynamic> _socks(Uri uri) {
@@ -380,8 +537,7 @@ Map<String, dynamic>? _transportFrom({
       'transport': {
         'type': 'ws',
         if (path.isNotEmpty) 'path': path,
-        if (host.isNotEmpty)
-          'headers': {'Host': host},
+        if (host.isNotEmpty) 'headers': {'Host': host},
       },
     },
     'grpc' => {

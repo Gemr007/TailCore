@@ -122,6 +122,32 @@ void main() {
       expect(s.outbound['congestion_control'], 'bbr');
     });
 
+    test('WireGuard-ссылка становится endpoint, а не исходящим', () {
+      final s = parseShareLink(
+        'wireguard://cHJpdmF0ZUtleQ%3D%3D@1.2.3.4:51820'
+        '?publickey=cHVibGljS2V5&address=172.16.0.2/32,fd00::2/128'
+        '&mtu=1420&reserved=1,2,3#wg-node',
+      );
+
+      expect(s, isNotNull);
+      expect(s!.protocol, 'wireguard');
+      expect(s.badge, 'WG');
+      // Адрес узла берётся у пира: на верхнем уровне его нет вовсе.
+      expect(s.host, '1.2.3.4');
+      expect(s.port, 51820);
+      expect(s.isEndpoint, isTrue);
+
+      // Ключ остаётся base64 — таким его и ждёт ядро; из ссылки снимается
+      // только percent-кодирование, которым закрыты «=» в конце.
+      expect(s.outbound['private_key'], 'cHJpdmF0ZUtleQ==');
+      expect(s.outbound['address'], ['172.16.0.2/32', 'fd00::2/128']);
+      expect(s.outbound['mtu'], 1420);
+
+      final peer = (s.outbound['peers'] as List).single as Map;
+      expect(peer['public_key'], 'cHVibGljS2V5');
+      expect(peer['reserved'], [1, 2, 3]);
+    });
+
     test('незнакомая схема и мусор не роняют импорт', () {
       expect(parseShareLink('magnet:?xt=urn:btih:whatever'), isNull);
       expect(parseShareLink('vless://@:0'), isNull);
@@ -180,6 +206,58 @@ void main() {
       expect(parseImport('   ').servers, isEmpty);
       expect(parseImport('{"outbounds": []}').servers, isEmpty);
       expect(parseImport('здесь нет конфигов').servers, isEmpty);
+    });
+  });
+
+  group('WireGuard .conf', () {
+    const conf = '''
+[Interface]
+PrivateKey = cHJpdmF0ZUtleQ==
+Address = 10.13.13.2/32, fd00::2/128
+MTU = 1420
+DNS = 1.1.1.1
+
+[Peer]
+PublicKey = cHVibGljS2V5
+PresharedKey = cHNr
+Endpoint = vpn.example.com:51820
+AllowedIPs = 0.0.0.0/0, ::/0
+PersistentKeepalive = 25
+''';
+
+    test('файл провайдера разбирается целиком', () {
+      final result = parseImport(conf);
+      expect(result.skipped, isEmpty);
+
+      final s = result.servers.single;
+      expect(s.protocol, 'wireguard');
+      expect(s.host, 'vpn.example.com');
+      expect(s.port, 51820);
+      expect(s.outbound['private_key'], 'cHJpdmF0ZUtleQ==');
+      expect(s.outbound['address'], ['10.13.13.2/32', 'fd00::2/128']);
+
+      final peer = (s.outbound['peers'] as List).single as Map;
+      expect(peer['public_key'], 'cHVibGljS2V5');
+      expect(peer['pre_shared_key'], 'cHNr');
+      expect(peer['allowed_ips'], ['0.0.0.0/0', '::/0']);
+    });
+
+    test('адрес без длины префикса дополняется, а не отбрасывается', () {
+      final s = parseImport(
+        conf.replaceAll(
+          'Address = 10.13.13.2/32, fd00::2/128',
+          'Address = 10.13.13.2',
+        ),
+      ).servers.single;
+      expect(s.outbound['address'], ['10.13.13.2/32']);
+    });
+
+    test('файл без ключа пира отвергается с причиной, а не наполовину', () {
+      final result = parseImport(
+        conf.replaceAll('PublicKey = cHVibGljS2V5', ''),
+      );
+      expect(result.servers, isEmpty);
+      expect(result.skipped.single.reason, contains('ключей'));
     });
   });
 

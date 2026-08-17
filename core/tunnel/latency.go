@@ -81,7 +81,15 @@ func testWithLink(configJSON string, timeoutSeconds int, link string) (string, e
 	testCtx, cancel := context.WithTimeout(ctx, time.Duration(timeoutSeconds)*time.Second)
 	defer cancel()
 
-	out, err := json.Marshal(measure(testCtx, inst.Outbound().Outbounds(), link))
+	// Endpoints перечисляются отдельно: WireGuard в sing-box 1.13 — не
+	// исходящий, а endpoint, и в Outbounds() его нет. Без этой строки
+	// WireGuard-узлы молча не мерялись бы вовсе — ни задержки, ни ошибки.
+	nodes := inst.Outbound().Outbounds()
+	for _, e := range inst.Endpoint().Endpoints() {
+		nodes = append(nodes, e)
+	}
+
+	out, err := json.Marshal(measure(testCtx, nodes, link))
 	if err != nil {
 		return "", err
 	}

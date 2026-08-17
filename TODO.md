@@ -18,6 +18,7 @@
 | 8 | Доменный роутинг: rule-set `.srs`, тумблер «игры мимо VPN» | 44 теста приложения + разбор конфига ядром |
 | 9 | Роутинг по процессам: шаблоны приложений, резолв по реальной ОС | 48 тестов приложения + разбор правил ядром |
 | 10 | Экран настроек: порт, DNS, автозапуск; kill switch и TUN выключены с причиной | 53 теста приложения + разбор конфига ядром |
+| 11 | WireGuard: теги `with_wireguard`+`with_gvisor`, ссылка и `.conf`, формат endpoint | 58 тестов приложения + замер endpoint в ядре |
 
 ## Шаг 7 — что осталось доделать
 
@@ -83,11 +84,19 @@
 - [ ] **Свой адрес DNS руками.** Сейчас четыре готовых резолвера. Поле
       ввода — когда станет ясно, что готовых мало.
 
+## Шаг 11 — что осталось проверить вживую
+
+- [ ] **WireGuard-подключение.** Ядро собирается с `with_wireguard` +
+      `with_gvisor`, endpoint разбирается и попадает в замер. Реального
+      узла WireGuard под рукой не было — соединение не проверялось.
+- [ ] **Библиотека выросла с 45 до 52 МБ** (gVisor). Для Android это
+      умножается на четыре ABI. Если станет больно, разделять сборки по
+      платформам — отдельная задача.
+
 ## Дальше по плану
 
 | Шаг | Что |
 |-----|-----|
-| 11 | WireGuard: тег `with_wireguard`, разбор ссылки, формат endpoint |
 | 12 | Протоколы, которые ядро уже умеет, а импорт нет: SSH, ShadowTLS, AnyTLS, Tor, NaiveProxy (тег `with_naive_outbound`) |
 | 13 | Xray-core вторым движком: сборка в ту же библиотеку, выбор движка по узлу, свой статус и счётчики |
 | 14 | XHTTP и остальные транспорты Xray (mKCP, QUIC от Xray) поверх шага 13 — импорт перестаёт их отвергать |
@@ -104,14 +113,15 @@ TUN/VpnService, — новые протоколы проверяются в эт
 
 ### Что уже собрано в ядре, а что нет
 
-Теги сборки живут в `scripts/build-tags.txt`, сейчас там `with_utls,with_quic`.
+Теги сборки живут в `scripts/build-tags.txt`, сейчас там
+`with_utls,with_quic,with_wireguard,with_gvisor`.
 
 - **Работают:** SOCKS, HTTP(S), Shadowsocks, VMess, VLESS (в том числе
-  Reality/XTLS), Trojan, Hysteria, Hysteria2, TUIC. Импорт ссылок есть.
+  Reality/XTLS), Trojan, Hysteria, Hysteria2, TUIC, WireGuard. Импорт
+  ссылок есть; у WireGuard — ещё и файл `.conf`.
 - **Собраны, но импорта ссылок нет:** SSH, ShadowTLS, AnyTLS, Tor — зайдут
   только конфигом sing-box (шаг 12).
-- **Не собраны:** WireGuard (нужен `with_wireguard`), NaiveProxy (нужен
-  `with_naive_outbound`).
+- **Не собран:** NaiveProxy (нужен `with_naive_outbound`).
 - **Нет в sing-box вообще:** XHTTP, mKCP и QUIC от Xray (нужен Xray-core),
   AmneziaWG (нужен форк), Mieru, Juicity, TrustTunnel, olcRTC.
 

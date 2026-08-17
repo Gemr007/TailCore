@@ -21,8 +21,14 @@ class Server {
   final String host;
   final int port;
 
-  /// Готовый к отправке в ядро outbound.
+  /// Готовый к отправке в ядро узел. Для большинства протоколов это
+  /// outbound; для WireGuard — endpoint, у него в конфиге отдельный массив.
+  /// Имя поля осталось прежним: оно же лежит ключом в сохранённом списке.
   final Map<String, dynamic> outbound;
+
+  /// WireGuard в sing-box 1.13 живёт не среди исходящих, а в `endpoints`.
+  /// Положить его к остальным — получить «unknown outbound type» на старте.
+  bool get isEndpoint => protocol == 'wireguard';
 
   /// Код протокола для бейджа. Hysteria2 в макете подписан HY2, потому что
   /// колонка узкая, а не потому что sing-box его так зовёт.
@@ -56,21 +62,22 @@ class Server {
 
   /// Служебные исходящие sing-box: они есть почти в каждом конфиге и узлами
   /// не являются.
-  static const _service = {
-    'direct',
-    'block',
-    'dns',
-    'selector',
-    'urltest',
-  };
+  static const _service = {'direct', 'block', 'dns', 'selector', 'urltest'};
 
   /// Собирает узел из outbound sing-box. null — если это служебный
   /// исходящий или в нём нет адреса, по которому можно подключиться.
   static Server? fromOutbound(Map<String, dynamic> outbound) {
     final type = outbound['type'];
-    final host = outbound['server'];
-    final port = outbound['server_port'];
     if (type is! String || _service.contains(type)) return null;
+
+    // У WireGuard адреса на верхнем уровне нет: подключаются к пиру, а их
+    // может быть несколько. Показываем первого — в списке всё равно одна
+    // строка, а ключ узла должен быть устойчивым.
+    final source = type == 'wireguard'
+        ? ((outbound['peers'] as List?)?.firstOrNull as Map?)
+        : outbound;
+    final host = source?[type == 'wireguard' ? 'address' : 'server'];
+    final port = source?[type == 'wireguard' ? 'port' : 'server_port'];
     if (host is! String || host.isEmpty || port is! num) return null;
 
     final tag = outbound['tag'];
