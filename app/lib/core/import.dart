@@ -32,10 +32,8 @@ ImportResult parseImport(String text) {
   // ссылку, и человек приносит его целиком.
   if (trimmed.contains('[Interface]')) {
     final wg = parseWireguardConf(trimmed);
-    if (wg != null) return ImportResult([wg], const []);
-    return const ImportResult([], [
-      (name: 'WireGuard', reason: 'в файле нет ключей или адреса пира'),
-    ]);
+    if (wg.server != null) return ImportResult([wg.server!], const []);
+    return ImportResult(const [], [(name: 'WireGuard', reason: wg.reason!)]);
   }
 
   final fromJson = _parseSingBox(trimmed);
@@ -127,10 +125,37 @@ ImportResult _parseLinks(String text) {
 /// в ссылке нет адреса.
 Server? parseShareLink(String link) => parseNode(link).server;
 
+/// Параметры обфускации AmneziaWG. Их присутствие меняет сам протокол:
+/// пакеты идут с мусорными вставками и подменёнными типами, и обычный
+/// WireGuard такой сервер не поймёт.
+const _amneziaKeys = {
+  'jc',
+  'jmin',
+  'jmax',
+  'j1',
+  'j2',
+  'j3',
+  's1',
+  's2',
+  's3',
+  's4',
+  'h1',
+  'h2',
+  'h3',
+  'h4',
+  'i1',
+  'i2',
+  'i3',
+  'i4',
+  'i5',
+  'itime',
+};
+
 /// Разбирает файл `.conf` WireGuard — тот самый, который выдают провайдеры.
-/// null, если нет ключей или адреса пира: узел без них не поднимется, а
-/// молча собранная половина конфига выглядела бы рабочей.
-Server? parseWireguardConf(String text) {
+///
+/// Возвращает причину вместо узла, если собрать его нельзя: полконфига,
+/// собранного молча, выглядят рабочими и не работают.
+({Server? server, String? reason}) parseWireguardConf(String text) {
   final values = <String, String>{};
   var section = '';
 
@@ -151,19 +176,37 @@ Server? parseWireguardConf(String text) {
     values[key] = line.substring(eq + 1).trim();
   }
 
+  // AmneziaWG опознаём до сборки: без его параметров получится обычный
+  // WireGuard, который к такому серверу не подключится, — узел в списке,
+  // который выглядит настроенным и молчит.
+  final amnezia = values.keys
+      .where((k) => k.startsWith('[interface].'))
+      .map((k) => k.substring('[interface].'.length))
+      .where(_amneziaKeys.contains);
+  if (amnezia.isNotEmpty) {
+    return (
+      server: null,
+      reason:
+          'это AmneziaWG (${amnezia.join(', ')}) — ядро его пока не умеет, '
+          'нужен форк sing-box',
+    );
+  }
+
   final privateKey = values['[interface].privatekey'] ?? '';
   final publicKey = values['[peer].publickey'] ?? '';
   final endpoint = values['[peer].endpoint'] ?? '';
   final addresses = _prefixes(values['[interface].address'] ?? '');
   final colon = endpoint.lastIndexOf(':');
-  if (privateKey.isEmpty || publicKey.isEmpty || colon <= 0) return null;
-  if (addresses.isEmpty) return null;
+
+  const broken = (server: null, reason: 'в файле нет ключей или адреса пира');
+  if (privateKey.isEmpty || publicKey.isEmpty || colon <= 0) return broken;
+  if (addresses.isEmpty) return broken;
 
   final port = int.tryParse(endpoint.substring(colon + 1));
-  if (port == null) return null;
+  if (port == null) return broken;
 
   final allowed = _prefixes(values['[peer].allowedips'] ?? '');
-  return Server.fromOutbound({
+  final server = Server.fromOutbound({
     ..._wireguardEndpoint(
       privateKey: privateKey,
       publicKey: publicKey,
@@ -177,6 +220,7 @@ Server? parseWireguardConf(String text) {
     ),
     'tag': 'WireGuard',
   });
+  return server == null ? broken : (server: server, reason: null);
 }
 
 /// Разбирает ссылку, различая три исхода: узел готов; узел распознан, но

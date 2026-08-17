@@ -409,6 +409,24 @@ PersistentKeepalive = 25
       expect(result.servers, isEmpty);
       expect(result.skipped.single.reason, contains('ключей'));
     });
+
+    test('AmneziaWG опознаётся и не притворяется обычным WireGuard', () {
+      // Ключи обфускации меняют сам протокол: собрать из такого файла
+      // обычный WireGuard — значит отдать узел, который не подключится и
+      // не объяснит почему.
+      final result = parseImport(
+        conf.replaceAll(
+          'MTU = 1420',
+          'MTU = 1420\nJc = 4\nJmin = 40\nJmax = 70\nS1 = 15\nH1 = 1234567',
+        ),
+      );
+
+      expect(result.servers, isEmpty);
+      expect(result.skipped.single.reason, contains('AmneziaWG'));
+      // Причина называет найденные параметры: по ним видно, что это не
+      // догадка парсера.
+      expect(result.skipped.single.reason, contains('jc'));
+    });
   });
 
   group('Server', () {
